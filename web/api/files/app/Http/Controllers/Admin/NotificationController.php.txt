@@ -1,0 +1,27 @@
+<?php
+
+namespace App\Http\Controllers;
+
+namespace App\Http\Controllers\Admin;
+
+use Auth;
+use Validator;
+use Illuminate\Http\Request;
+use DB;
+use App\Http\Controllers\Controller;
+use App\Models\Notification;
+
+
+class NotificationController extends Controller
+{
+    public function fetch(Request $request)
+    {
+        $admin = Auth::guard('admin')->user();
+        return response()->json(array(
+            'success' => true,
+            'notifications' => $admin->notifications,
+            'unread' => count($admin->unreadnotifications)
+        ));
+    }
+}
+

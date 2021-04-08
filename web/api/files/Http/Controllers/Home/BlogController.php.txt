@@ -1,0 +1,182 @@
+<?php
+
+namespace App\Http\Controllers\Home;
+
+use Carbon\Carbon;
+use Illuminate\Http\Request;
+use App\Http\Controllers\Controller;
+use App\Models\BlogPost;
+use Illuminate\Validation\Rule;
+use MongoDB\BSON\UTCDateTime;
+use Validator;
+use Auth;
+
+
+class BlogController extends Controller
+{
+    /**
+     * used to fetch/search published and active blogs and announcements.
+     *
+     * Optional Fields:
+     *
+     * 1. `offset` (default 0)
+     *
+     * 2. `limit` (default 10)
+     *
+     * 3. `search_tag` (if used, then it is complsory to provide search string; will fetch matching tag used in blogs and announcements)
+     *
+     * 4. `search_text` (if used, then it is complsory to provide search string; will fetch matching text used in `title`, `body` and `excerpt`)
+     *
+     * IMPORTANT: `search_tag` and `search_text` should not be called in single api call.
+     * @param Request $request
+     * @return mixed
+     */
+    public function blogAndAnnouncementsList(Request $request)
+    {
+        //todo Timezone issue while saving announce_till see this link https://stackoverflow.com/questions/21607236/get-utc-from-another-timezone-with-carbon
+
+        $currentDateTime = Carbon::now('GMT');//new UTCDateTime(Carbon::now()->timestamp * 1000);
+//        dump($currentDateTime);
+//
+//        dump(BlogPost::getBlogAndAnnouncementBaseQuery()->where('type', BlogPost::ANNOUNCEMENT)->where('announce_till',
+//            '>', $currentDateTime)->get());
+
+        $validator = Validator::make($request->all(), [
+            'types' => [
+                'sometimes',
+                'required',
+                'array',
+                Rule::in(['blog', 'announcements']),
+            ],
+            'search_tag' => 'sometimes|required|string|regex:/^[a-zA-Z0-9]+$/u',
+            'search_text' => 'sometimes|required|string'
+        ]);
+
+        if ($validator->fails()) {
+            return response()->api(false, implode(', ', $validator->errors()->all()), null);
+        }
+        $search_tag = null;
+        $search_text = null;
+        if ($request->has('search_tag')) {
+            $search_tag = $request->search_tag;
+        }
+
+        if ($request->has('search_text')) {
+            $clean_string = stringCleaner($request->search_text);
+            if ($clean_string != "") {
+                $search_text = explode(" ", $clean_string);
+            }
+        }
+
+        if ((true == $search_tag) && (true == $search_text)) {
+            return response()->api(false, 'search by tag and search by text both are not allowed in single api call',
+                null);
+        }
+
+        $blog_count = $announcement_count = 0;
+        $blogArray = [];
+        $blogAndAnnouncementsBaseQuery = BlogPost::getBlogAndAnnouncementBaseQuery($search_tag, $search_text);
+        //dd($blogAndAnnouncementsBaseQuery->toSql());
+        foreach ($request->types as $key => $postType) {
+            switch ($postType) {
+                case 'blog':
+                    $blogQuery = clone $blogAndAnnouncementsBaseQuery;
+
+                    $blog_count = $blogQuery->where('type', BlogPost::REGULAR_POST)->count();
+                    $typeBlogs = $this->insertAuthorUsernameInCollection($blogQuery->where('type',
+                        BlogPost::REGULAR_POST)->skip((int)$request->offset ?? 0)->take((int)$request->limit ?? 10)->get());
+                    break;
+                case 'announcements':
+                    $announcementQuery = clone $blogAndAnnouncementsBaseQuery;
+                    $announcement_count = $announcementQuery->where('type',
+                        BlogPost::ANNOUNCEMENT)->where('announce_till', '>', $currentDateTime)->count();
+
+                    $typeBlogs = $this->insertAuthorUsernameInCollection($announcementQuery->where('type',
+                        BlogPost::ANNOUNCEMENT)->where('announce_till', '>',
+                        $currentDateTime)->skip((int)$request->offset ?? 0)->take((int)$request->limit ?? 10)->get());
+                    break;
+            }
+            $blogArray[$postType] = $typeBlogs;
+        }
+
+
+        return response()->api(true, 'posts fetched successfully', [
+            'blog_announcements' => $blogArray,
+            'total_blog_count' => $blog_count,
+            'total_announcement_count' => $announcement_count,
+        ]);
+    }
+
+    /**
+     * Used to fetch an active and published single post/announcement using the `slug` provided.
+     *
+     * @param string $slug
+     * @return mixed
+     */
+    public function viewSinglePost($slug)
+    {
+        $post = BlogPost::findBySlug($slug);
+
+        if (false == $post) {
+            return response()->api(false, 'not found', null);
+        }
+        $post->total_views = (int)$post->total_views + 1;
+        $post->save();
+
+        return response()->api(true, 'post fetched successfully', ['post' => $post]);
+    }
+
+    /**
+     * Used to like and unlike a post
+     *
+     * - This api will check if previously user have given a vote i.e `1` then it will update user's vote to `0`.
+     *
+     * - If user have given downvote i.e `0` then it will update user's vote to 1.
+     *
+     * - By default i.e user have never given vote/downvote on a post, on this api call it will insert user's id in `votes_by_user` field with value `1`.
+     *
+     * - `total_votes` are updated after calculating all positive i.e `1s` votes and then returned to api response.
+     *
+     * @param string $blogId
+     * @return mixed
+     */
+    public function clapUnclap($blogId)
+    {
+        $post = BlogPost::findById($blogId);
+        if (false == $post) {
+            return response()->api(false, 'not found', null);
+        }
+
+        $userId = auth('api')->user()->id;
+
+        $userVotes = json_decode(json_encode($post->votes_by_users), true);
+
+        if (true == array_key_exists($userId, $userVotes)) {
+            $individualVote = $userVotes[$userId];
+            if ($individualVote <= 0) {
+                $userVotes[$userId] = 1;
+                $api_message = 'you liked this post';
+            } else {
+                $userVotes[$userId] = 0;
+                $api_message = 'you unliked this post';
+            }
+        } else {
+            $userVotes[$userId] = 1;
+            $api_message = 'you liked this post';
+        }
+        $post->votes_by_users = $userVotes;
+
+        //count +1s
+        $positiveCounts = 0;
+        foreach ($userVotes as $key => $value) {
+            if ($value > 0) {
+                $positiveCounts++;
+            }
+        }
+
+        $post->total_votes = $positiveCounts;
+        $post->save();
+
+        return response()->api(true, $api_message, ['total_votes' => $positiveCounts]);
+    }
+}

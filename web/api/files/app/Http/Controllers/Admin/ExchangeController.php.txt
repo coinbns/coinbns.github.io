@@ -1,0 +1,106 @@
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use App\Http\Controllers\Controller;
+use App\Models\Currency;
+use App\Models\Exchange;
+use App\Models\Exchangeexchange;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\DB;
+use Intervention\Image\Facades\Image;
+use Validator;
+
+class ExchangeController extends Controller
+{
+    protected $exchangeLimit = 20;
+
+    public function index(Request $request)
+    {
+        return view('admin.exchange.list');
+    }
+
+    public function viewexchange($symbol)
+    {
+        $exchange = Exchange::findByName($symbol);
+        if (true == empty($exchange)) {
+            abort(404);
+        }
+        $exchangeCoins = $exchange->pairs ?? collect();
+        // dd($exchangeCoins);
+        if (false == $exchangeCoins->isEmpty()) {
+            $exchangeCoins->load('coin');
+            // dd($exchangeCoins);
+            foreach ($exchangeCoins as $key => $exchangeCoin) {
+                if (true == empty($exchangeCoins[$key]->coin_symbol)) {
+                    continue;
+                }
+                $exchangeCoins[$key]->coin_symbol = $exchangeCoin->coin->symbol;
+                unset($exchangeCoins[$key]->coin, $exchangeCoins[$key]->coin_id);
+            }
+        }
+
+        $exchangeCoins = $exchangeCoins->toJson();
+        // dd($exchangeCoins);
+        return view('admin.exchange.detail', compact('exchange', 'exchangeCoins'));
+    }
+
+    public function loadexchanges(Request $request)
+    {
+        $search = $request->search;
+        $page = $request->page ?? 1;
+        $offset = $this->exchangeLimit * ($page - 1);
+        if (false == empty($search)) {
+            $exchanges = Exchange::getExchangesByName($offset, $this->exchangeLimit, $search);
+            $pageCount = floor(Exchange::getCountByName($search) / $this->exchangeLimit) + 1;
+        } else {
+            $exchanges = Exchange::getExchanges($offset, $this->exchangeLimit);
+            $pageCount = floor(Exchange::getCount() / $this->exchangeLimit) + 1;
+        }
+
+        return response()->api(true, 'Success', [
+            'exchanges' => $exchanges,
+            'pageCount' => $pageCount,
+        ]);
+    }
+
+    public function toggleExchangeStatus(Request $request)
+    {
+        Exchange::updateStatusBySymbol($request->symbol, $request->status ?? Exchange::ACTIVE);
+        return response()->api(true, 'Success', null);
+    }
+
+    public function updateExchange(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'name' => 'required',
+        ]);
+        if ($validator->fails()) {
+            return response()->api(false, implode(', ', $validator->errors()->all()), null);
+        }
+
+        $exchange = Exchange::find($request->id);
+        if (true == empty($exchange)) {
+            return response()->api(false, 'exchange not found', null);
+        }
+
+        if (false == empty($request->file('logo'))) {
+            // dd($request->file('logo'));
+            $logoFilePath = public_path('images/exchanges') . '/' . $exchange->id . '.png';
+            $image = Image::make($request->file('logo'))->resize(150, 150)->save($logoFilePath);
+            $exchange->logo = $exchange->id . '.png';
+        }
+
+        $exchange->name = $request->name;
+        $exchange->website = $request->website;
+        $exchange->twitter = $request->twitter;
+        $exchange->blog = $request->blog;
+        $exchange->fees = $request->fees;
+        $exchange->status = $request->status ?? 0;
+        $exchange->save();
+
+        return back();
+    }
+}
+

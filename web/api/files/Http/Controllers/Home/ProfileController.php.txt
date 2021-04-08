@@ -1,0 +1,938 @@
+<?php
+
+namespace App\Http\Controllers\Home;
+
+use App\Models\Coin;
+use App\Models\Country;
+use App\Models\MobileOneTimePassword;
+use App\Models\UnregisteredUser;
+use App\Models\UserFeedback;
+use Illuminate\Http\Request;
+use App\Http\Controllers\Controller;
+use App\Models\User;
+use App\Models\UserCoin;
+use App\Models\Dispute;
+use App\Models\Trade;
+use App\Models\Advertisement;
+use App\Models\AdvertisementPaymentMethod;
+use App\Models\AuthorizationChallenge;
+use App\Models\Currency;
+use App\Models\EmailReset;
+use App\Models\UserAccessLog;
+use App\Models\NameChange;
+use App\Models\EventLogger;
+use Illuminate\Support\Facades\Mail;
+use App\Mail\EmailReset as SendResetMail;
+use Auth;
+use Cache;
+use Validator;
+
+class ProfileController extends Controller
+{
+    protected $verificationSlug = '/email-reset-verification/%s';
+
+    /**
+     * Used to view user's self profile as per coin selected
+     *
+     * Gets counts of following:
+     *
+     * - feedback_score
+     *
+     * - closed_trade
+     *
+     * - cancelled_trades
+     *
+     * - dispute_counts (trades in which user is found guilty are taken in to consideration)
+     *
+     * - advertisement
+     *
+     * Gets user details as following:
+     *
+     * - name
+     *
+     * - email
+     *
+     * - phone
+     *
+     * - account_creation_date
+     *
+     * - last_seen
+     *
+     * - language (English as default)
+     *
+     * @param Request $request
+     * @return mixed
+     */
+    public function viewSelfProfile(Request $request)
+    {
+        $user_profile = [];
+        $coinId = $request->coin_id;
+        $userId = Auth::user()->id;
+        $closedTradesCount = 0;
+        $cancelledTradesCount = 0;
+        $lastSeen = Cache::get('userId' . Auth::id() . 'LastSeen');
+        $user_details = array(
+            'name' => Auth::user()->name,
+            'email' => Auth::user()->email,
+            'phone' => Auth::user()->contact,
+            'account_creation_date' => Auth::user()->created_at->toDateTimeString(),
+            'last_seen' => $lastSeen ? $lastSeen->toDateTimeString() : Auth::user()->created_at->toDateTimeString(),
+            'language' => 'English'
+        );
+
+        //Trade details starts
+        $userCoin = UserCoin::findUserCoin($coinId, $userId);
+        if (is_null($userCoin)) {
+            return response()->api(false, 'User_coin not set for the coin used ', null);
+        }
+        $trade = array(
+            'volume' => $userCoin->trade_volume
+        );
+
+        $tradeDetails = Advertisement::getTradesByAdvertisementsByUserIdCoinId($userId, $coinId);
+
+
+        $trade['feedback_score'] = $userCoin->trusted_trade_score;
+
+        $trade['closed_trade'] = $userCoin->completed_trade_count;
+        $trade['cancelled_trades'] = $userCoin->cancelled_trade_count;
+
+        //dispute details starts
+        $disputeDetails = Dispute::getDisputesWhereUserIsguilty($userId);
+
+        $dispute_details = $disputeDetails->count();
+
+        $adsDetails = Advertisement::getUserAdvertisements(0, $coinId, $userId);
+        $adPaymentMethods = AdvertisementPaymentMethod::getByAdIds($adsDetails->pluck('id'))->groupBy('advertisement_id');
+
+        foreach ($adsDetails as $key => $advertisement) {
+            $advertisement->payment_methods = (false == empty($adPaymentMethods[$advertisement->id])) ? $adPaymentMethods[$advertisement->id]->pluck('payment_method_name') : [];
+        }
+        $advertisementsCount = $adsDetails->count();
+        $advertisement_details = $advertisementsCount;
+
+        $user_profile['user_details'] = $user_details;
+        $user_profile['trade_details'] = $trade;
+        $user_profile['disputes'] = $dispute_details;
+        $user_profile['advertisements'] = $advertisement_details;
+        $user_profile['feedbacks'] = UserFeedback::getFeedbacksForUser($userId);
+
+        return response()->api(true, 'Success', $user_profile);
+    }
+
+    /**
+     * Used to view other user's self profile as per coin selected
+     *
+     *
+     * Gets counts of following:
+     *
+     * - feedback_score
+     *
+     * - closed_trade
+     *
+     * - cancelled_trades
+     *
+     * - all advertisements
+     *
+     *
+     * Gets user details as following:
+     *
+     * - name
+     *
+     * - email
+     *
+     * - phone
+     *
+     * - account_creation_date
+     *
+     * - last_seen
+     *
+     * - language (English as default)
+     *
+     * - Verified documents with date
+     *
+     * - 3 active advertisements; bifurcated as buy and sell categories
+     *
+     * -
+     * @param string $userName
+     * @param Request $request
+     * @return mixed
+     */
+    public function viewOthersProfile($userName, Request $request)
+    {
+        $userDetails = User::findByUsername($userName);
+        if (false == $userDetails) {
+            return response()->api(false, 'User Does Not Exist', null);
+        }
+        $user_profile = [];
+        $coinId = $request->coin_id;
+        $coinPrice = Coin::findById($coinId)->price;
+        $userId = $userDetails->id;
+        $closedTradesCount = 0;
+        $cancelledTradesCount = 0;
+        $lastSeen = Cache::get('userId' . $userId . 'LastSeen');
+        $country = Country::findCountry($userDetails->country_id);
+        $user_details = array(
+            'user_id' => $userId,
+            'name' => $userDetails->name,
+            'email' => $userDetails->email,
+            'phone' => $userDetails->contact,
+            'account_creation_date' => $userDetails->created_at->toDateTimeString(),
+            'last_seen' => $lastSeen != null ? $lastSeen->toDateTimeString() : $userDetails->last_login->toDateTimeString(),
+            'language' => 'English',
+            'country' => $country->name
+        );
+
+        //verified documents starts here
+        $verified_documents = [];
+        $emailVerifiedOn = UnregisteredUser::findByUsername($userDetails->username);
+        if (false == empty($emailVerifiedOn)) {
+            $verified_documents[] = array(
+                'document' => 'Email',
+                'timestamp' => $emailVerifiedOn->updated_at->toDateTimeString()
+            );
+        }
+
+        $mobileVerifiedOn = MobileOneTimePassword::findMobileVerifiedByUserId($userId);
+
+        if (false == empty($mobileVerifiedOn)) {
+            $verified_documents[] = array(
+                'document' => 'Mobile',
+                'timestamp' => $mobileVerifiedOn->created_at->toDateTimeString()
+            );
+        }
+
+        //BUY SELL advertisement starts
+        $buy_ads = [];
+        $sell_ads = [];
+
+        $ads = Advertisement::getUsersActiveAdvertisementsOnly(3, $coinId, $userId);
+        $adPaymentMethods = AdvertisementPaymentMethod::getByAdIds($ads->pluck('id'))->groupBy('advertisement_id');
+
+        if (true == $ads) {
+
+            foreach ($ads as $ad) {
+                $adPrice = $this->adPriceCalculator($ad->margin_percentage, $country->currency_rate, $coinPrice);
+
+                if ($ad->trade_type == Advertisement::BUY) {
+                    $sell_ads[] = array(
+                        'ad_id' => $ad->id,
+                        'ad_price' => $adPrice,
+                        'currency' => $ad->currency_symbol,
+                        'country_name' => $ad->country_name,
+                        'coin_name' => $ad->coin_name,
+                        'payment_methods' => (false == empty($adPaymentMethods[$ad->id])) ? $adPaymentMethods[$ad->id]->pluck('payment_method_name') : [],
+                        'min_limit' => $ad->min_limit,
+                        'max_limit' => $ad->max_limit,
+                        'is_reported' => $ad->is_reported,
+                    );
+                } else {
+                    $buy_ads[] = array(
+                        'ad_id' => $ad->id,
+                        'ad_price' => $adPrice,
+                        'currency' => $ad->currency_symbol,
+                        'country_name' => $ad->country_name,
+                        'coin_name' => $ad->coin_name,
+                        'payment_methods' => (false == empty($adPaymentMethods[$ad->id])) ? $adPaymentMethods[$ad->id]->pluck('payment_method_name') : [],
+                        'min_limit' => $ad->min_limit,
+                        'max_limit' => $ad->max_limit,
+                        'is_reported' => $ad->is_reported,
+                    );
+                }
+            }
+        }
+
+
+        //Trade details starts
+        $userCoin = UserCoin::findUserCoin($coinId, $userId);
+        if (is_null($userCoin)) {
+            return response()->api(false, 'User_coin not set for the coin used ', null);
+        }
+        $user_details['feedback_score'] = $userCoin->trusted_trade_score;
+
+        $trade = array(
+            'volume' => UserCoin::findUserCoin($coinId, $userId)->trade_volume
+        );
+
+        $tradeDetails = Advertisement::getTradesByAdvertisementsByUserIdCoinId($userId, $coinId);
+
+        foreach ($tradeDetails as $trade_detail) {
+            if ($trade_detail->tr_status == Trade::CLOSED) {
+                $closedTradesCount++;
+            }
+
+            if ($trade_detail->tr_status == Trade::CANCELLED) {
+                $cancelledTradesCount++;
+            }
+        }
+
+        $trade['closed_trade'] = $closedTradesCount;
+
+        $trade['cancelled_trades'] = $cancelledTradesCount;
+
+        $adsDetails = Advertisement::getUserAdvertisements(0, $coinId, $userId);
+
+        $advertisementsCount = $adsDetails->count();
+        $advertisement_details = $advertisementsCount;
+
+        $user_profile['user_details'] = $user_details;
+        $user_profile['verified_documents'] = $verified_documents;
+        $user_profile['trade_details'] = $trade;
+        $user_profile['advertisements'] = $advertisement_details;
+        $user_profile['buy_advertisement'] = $buy_ads;
+        $user_profile['sell_advertisement'] = $sell_ads;
+        $user_profile['feedbacks'] = UserFeedback::getFeedbacksForUser($userId);
+
+        return response()->api(true, 'Success', $user_profile);
+    }
+
+    /**
+     * Updates name of the user.
+     *
+     * 1. Find users old name
+     *
+     * 2. Check if old name and new names are same
+     *
+     * 3. If not same then check user's total count of name_changes
+     *
+     * 4. If users name_changes count is equal to more than NAME_CHANGE_LIMIT in env then do not allow
+     *
+     * 5. Else make an entry in name_changes table with old name and new name then update the name.
+     *
+     * @param Request $request
+     * @return mixed
+     */
+    public function updateName(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'name' => 'required'
+        ]);
+        if ($validator->fails()) {
+            return response()->api(false, implode(', ', $validator->errors()->all()), null);
+        }
+
+        $newName = $request->name;
+
+        $userDetails = auth('api')->user();
+
+        $user = User::findById($userDetails->id);
+
+        $old_name = $user->name;
+
+        if ($old_name == $newName) {
+            return response()->api(true, 'Name updated successfully', false);
+        }
+
+        $nameChangesCount = NameChange::findUserNameChangeCount($userDetails->id);
+
+        if ($nameChangesCount >= config('app.name_change_limit')) {
+            return response()->api(false,
+                'Maximum limit of ' . config('app.name_change_limit') . ' has been reached for changing your name',
+                false);
+        }
+
+        if (false == NameChange::create(array(
+                'user_id' => $userDetails->id,
+                'old_name' => $old_name,
+                'new_name' => $newName
+            ))) {
+            return response()->api(false, 'Some error occurred while updating your name', false);
+        }
+
+        $user->name = $newName;
+        $user->save();
+
+        return response()->api(true, 'Name updated successfully', false);
+    }
+
+    /**
+     * Fetches user's Completed Trades, if any value is null then that condition will not apply while fetching from DB
+     *
+     * - `offset`: null(default)|int
+     *
+     * - `limit`: null(default)|int
+     *
+     * - `month`: null(default)|int
+     *
+     * - `year`: null(default)|int
+     *
+     *
+     * @param Request $request
+     * @return mixed
+     */
+    public function getClosedTrades(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'offset' => 'sometimes|required|integer',
+            'limit' => 'sometimes|required|integer',
+            'month' => 'sometimes|required|integer|max:12',
+            'year' => 'sometimes|required|integer',
+        ]);
+        if ($validator->fails()) {
+            return response()->api(false, implode(', ', $validator->errors()->all()), null);
+        }
+
+
+        $offset = null;
+        $limit = null;
+        $month = null;
+        $year = null;
+
+        if (true == $request->offset) {
+            $offset = $request->offset;
+        }
+
+        if (true == $request->limit) {
+            $limit = $request->limit;
+        }
+
+        if (true == $offset && false == $limit) {
+            return response()->api(false, 'Please provide a limit also', null);
+        }
+
+        if (true == $request->month) {
+            $month = $request->month;
+        }
+
+        if (true == $request->year) {
+            $year = $request->year;
+        }
+
+        if (false == $year && true == $month) {
+            return response()->api(false, 'A Month must be along with a Year', null);
+        }
+
+        $coinId = $request->coin_id;
+        $userId = Auth::user()->id;
+
+        $closedTrades = [];
+        $closedTradesDetails = Advertisement::getClosedTradesByAdvertisementsByUserIdCoinId($offset, $limit, $month,
+            $year, $userId, $coinId);
+
+        if ($closedTradesDetails->count() == 0) {
+            return response()->api(true, 'Data not available', [
+                'total_count' => 0,
+                'info' => []
+            ]);
+        }
+
+        foreach ($closedTradesDetails as $trade_detail) {
+
+
+            if ($trade_detail->seller_id == $userId) {
+                $trading_partner = $trade_detail->buyer_username;
+            } else {
+                $trading_partner = $trade_detail->seller_username;
+            }
+            if ($trade_detail->tr_status == Trade::CLOSED) {
+                $trade_status = "CLOSED";
+            }
+            if ($trade_detail->tr_status == Trade::DISPUTE_CLOSED) {
+                $trade_status = "DISPUTED BUT CLOSED";
+            }
+
+            if ($trade_detail->trade_type == Advertisement::BUY) {
+                $trade_type = "BUY";
+            }
+
+            if ($trade_detail->trade_type == Advertisement::SELL) {
+                $trade_type = "SELL";
+            }
+
+            $closedTrades[] = array(
+                'trade_id' => $trade_detail->tr_id,
+                'trade_created_on' => $trade_detail->tr_created_at,
+                'trade_type' => $trade_type,
+                'trading_partner' => $trading_partner,
+                'trade_status' => $trade_status,
+                'fiat_value' => $trade_detail->fiat_value
+            );
+        }
+
+        $jsonArray['total_count'] = Advertisement::getAllClosedTradesCountByAdvertisementsByUserIdCoinId($month, $year,
+            $userId, $coinId)->count;
+
+        $jsonArray['info'] = $closedTrades;
+
+        return response()->api(true, 'Success', $jsonArray);
+    }
+
+    /**
+     * Fetches user's Cancelled Trades, if any value is null then that condition will not apply while fetching from DB
+     *
+     * - `offset`: null(default)|int
+     *
+     * - `limit`: null(default)|int
+     *
+     * - `month`: null(default)|int
+     *
+     * - `year`: null(default)|int
+     *
+     *
+     * @param Request $request
+     * @return mixed
+     */
+    public function getCancelledTrades(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'offset' => 'sometimes|required|integer',
+            'limit' => 'sometimes|required|integer',
+            'month' => 'sometimes|required|integer|max:12',
+            'year' => 'sometimes|required|integer',
+        ]);
+        if ($validator->fails()) {
+            return response()->api(false, implode(', ', $validator->errors()->all()), null);
+        }
+
+        $offset = null;
+        $limit = null;
+        $month = null;
+        $year = null;
+
+        if (true == $request->offset) {
+            $offset = $request->offset;
+        }
+
+        if (true == $request->limit) {
+            $limit = $request->limit;
+        }
+
+        if (true == $offset && false == $limit) {
+            return response()->api(false, 'Please provide a limit also', null);
+        }
+
+        if (true == $request->month) {
+            $month = $request->month;
+        }
+
+        if (true == $request->year) {
+            $year = $request->year;
+        }
+
+        if (false == $year && true == $month) {
+            return response()->api(false, 'A Month must be along with a Year', null);
+        }
+
+        $coinId = $request->coin_id;
+        $userId = Auth::user()->id;
+        $cancelledTrades = [];
+        $cancelledTradesDetails = Advertisement::getCancelledTradesByAdvertisementsByUserIdCoinId($offset, $limit,
+            $month, $year, $userId,
+            $coinId);
+
+        $count = $cancelledTradesDetails->count();
+
+        if ($count == 0) {
+            return response()->api(true, 'Data not available', [
+                'total_count' => 0,
+                'info' => []
+            ]);
+        }
+
+        foreach ($cancelledTradesDetails as $trade_detail) {
+
+
+            if ($trade_detail->seller_id == $userId) {
+                $trading_partner = $trade_detail->buyer_username;
+            } else {
+                $trading_partner = $trade_detail->seller_username;
+            }
+
+            if ($trade_detail->trade_type == Advertisement::BUY) {
+                $trade_type = "BUY";
+            }
+
+            if ($trade_detail->trade_type == Advertisement::SELL) {
+                $trade_type = "SELL";
+            }
+
+            $cancelledTrades[] = array(
+                'trade_id' => $trade_detail->tr_id,
+                'trade_created_on' => $trade_detail->tr_created_at,
+                'trade_type' => $trade_type,
+                'trading_partner' => $trading_partner,
+                'trade_status' => "CANCELLED",
+                'fiat_value' => $trade_detail->fiat_value
+            );
+        }
+
+        $jsonArray['total_count'] = Advertisement::getAllCancelledTradesCountByAdvertisementsByUserIdCoinId($month,
+            $year,
+            $userId, $coinId)->count;
+
+        $jsonArray['info'] = $cancelledTrades;
+
+        return response()->api(true, 'Success', $jsonArray);
+    }
+
+    /**
+     * Fetches user's Disputed Trades in which user was found <b>guilty</b>, if any value is null then that condition will not apply while fetching from DB
+     *
+     * - `offset`: null(default)|int
+     *
+     * - `limit`: null(default)|int
+     *
+     * - `month`: null(default)|int
+     *
+     * - `year`: null(default)|int
+     *
+     *
+     * @param Request $request
+     * @return mixed
+     */
+    public function getDisputes(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'offset' => 'sometimes|required|integer',
+            'limit' => 'sometimes|required|integer',
+            'month' => 'sometimes|required|integer|max:12',
+            'year' => 'sometimes|required|integer',
+        ]);
+        if ($validator->fails()) {
+            return response()->api(false, implode(', ', $validator->errors()->all()), null);
+        }
+
+        $offset = null;
+        $limit = null;
+        $month = null;
+        $year = null;
+
+        if (true == $request->offset) {
+            $offset = $request->offset;
+        }
+
+        if (true == $request->limit) {
+            $limit = $request->limit;
+        }
+
+        if (true == $request->month) {
+            $month = $request->month;
+        }
+
+        if (true == $request->year) {
+            $year = $request->year;
+        }
+
+        if (false == $year && true == $month) {
+            return response()->api(false, 'A Month must be along with a Year', null);
+        }
+
+
+        $coinId = $request->coin_id;
+        $userId = Auth::user()->id;
+
+        $disputeDemographicData = Dispute::getDemographicData($offset, $limit, $month, $year, $userId, $coinId);
+
+
+        $count = $disputeDemographicData->count();
+
+        if ($count == 0) {
+            return response()->api(true, 'Data not available', [
+                'total_count' => 0,
+                'info' => []
+            ]);
+        }
+
+        //$dispute_demographic_array['count']=$count;
+        foreach ($disputeDemographicData as $data) {
+
+            if ($data->seller_id == $userId) {
+                $trading_partner = $data->buyer_username;
+            } else {
+                $trading_partner = $data->seller_username;
+            }
+
+            if ($data->trade_type == Advertisement::BUY) {
+                $trade_type = "BUY";
+            }
+
+            if ($data->trade_type == Advertisement::SELL) {
+                $trade_type = "SELL";
+            }
+
+            if ($data->trade_status == Trade::DISPUTE_OPEN) {
+                $trade_status = "UNDER DISPUTE";
+            }
+            if ($data->trade_status == Trade::DISPUTE_CLOSED) {
+                $trade_status = "DISPUTED BUT CLOSED";
+            }
+            $dispute_demographic_array[] = array(
+                'dispute_id' => $data->dispute_id,
+                'dispute_created_on' => $data->dispute_created_on,
+                'trade_type' => $trade_type,
+                'trading_partner' => $trading_partner,
+                'trade_status' => $trade_status,
+                'fiat_value' => $data->fiat_value
+            );
+
+        }
+
+
+        $jsonArray['total_count'] = Dispute::getAllDemographicDataCount($month, $year, $userId, $coinId);
+        $jsonArray['info'] = $dispute_demographic_array;
+        return response()->api(true, 'Success', $jsonArray);
+
+
+    }
+
+    /**
+     * Fetches user's advertisements as per the coin selected, if any value is null then that condition will not apply while fetching from DB
+     *
+     * - `offset`: null(default)|int
+     *
+     * - `limit`: null(default)|int
+     *
+     * - `month`: null(default)|int
+     *
+     * - `year`: null(default)|int
+     *
+     *
+     * @param Request $request
+     * @return mixed
+     */
+    public function getAdvertisements(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'offset' => 'sometimes|required|integer',
+            'limit' => 'sometimes|required|integer',
+            'month' => 'sometimes|required|integer|max:12',
+            'year' => 'sometimes|required|integer',
+        ]);
+        if ($validator->fails()) {
+            return response()->api(false, implode(', ', $validator->errors()->all()), null);
+        }
+
+        $offset = null;
+        $limit = null;
+        $month = null;
+        $year = null;
+
+        if (true == $request->offset) {
+            $offset = $request->offset;
+        }
+
+        if (true == $request->limit) {
+            $limit = $request->limit;
+        }
+
+        if (true == $offset && false == $limit) {
+            return response()->api(false, 'Please provide a limit also', null);
+        }
+
+        if (true == $request->month) {
+            $month = $request->month;
+        }
+
+        if (true == $request->year) {
+            $year = $request->year;
+        }
+
+        if (false == $year && true == $month) {
+            return response()->api(false, 'A Month must be along with a Year', null);
+        }
+
+        $coinId = $request->coin_id;
+        $userId = Auth::user()->id;
+
+        $advertisements = [];
+        $adsDetails = Advertisement::getUserAdsByMonthByYear($offset, $limit, $month, $year, $coinId, $userId);
+        $adPaymentMethods = AdvertisementPaymentMethod::getByAdIds($adsDetails->pluck('id'))->groupBy('advertisement_id');
+
+            foreach ($typeAdvertisements as $key => $advertisement) {
+                $advertisement->price = $this->adPriceCalculator($advertisement->margin_percentage,
+                    $country->currency_rate,
+                    $advertisement->coin_price);
+
+                $advertisement->country_name = $country->name;
+                $advertisement->payment_methods = (false == empty($adPaymentMethods[$advertisement->id])) ? $adPaymentMethods[$advertisement->id]->pluck('payment_method_name') : [];
+                $advertisement->setHidden([
+                    'margin_percentage',
+                    'coin_price',
+                ]);
+            }
+        if (false == $adsDetails) {
+            return response()->api(true, 'Data not available', null);
+        }
+        $count = Advertisement::getUserAdsCountByMonthByYear($month, $year, $coinId, $userId)->count;
+
+        foreach ($adsDetails as $ads_detail) {
+            $equation = $this->generateEquation($ads_detail->coin_symbol, $ads_detail->currency_symbol,
+                $ads_detail->margin_percentage);
+            $advertisements[] = array(
+                'ad_id' => $ads_detail->id,
+                'status' => $ads_detail->status,
+                'details' => array(
+                    'payment_method' => $ads_detail->payment_method,
+                    'terms' => $ads_detail->terms,
+                    'min_limit' => $ads_detail->min_limit,
+                    'max_limit' => $ads_detail->max_limit,
+                    'country_name' => $ads_detail->country_name,
+                    'is_reported' => $ads_detail->is_reported,
+                ),
+                'price' => 'NOT SET YET',
+                'equation' => $equation
+            );
+        }
+
+        $jsonArray['total_count'] = $count;
+        $jsonArray['info'] = $advertisements;
+
+        return response()->api(true, 'Success', $jsonArray);
+
+    }
+
+    /**
+     * Generates Advertisement Equation e.g. `TBTC_IN_USD*USD_IN_INR*0.995`
+     *
+     * @param string $coin_symbol
+     * @param string $currency_symbol
+     * @param float $marginPercent
+     * @return string
+     */
+    protected function generateEquation($coin_symbol, $currency_symbol, $marginPercent)
+    {
+        $equation = $coin_symbol . '_IN_';
+        $margin = 1 + ($marginPercent / 100);
+        if ($currency_symbol == Currency::BASE_CURRENCY) {
+            $equation .= $currency_symbol . '*' . $margin;
+        } else {
+            $equation .= Currency::BASE_CURRENCY . '*' . Currency::BASE_CURRENCY . '_IN_' . $currency_symbol . '*' . $margin;
+        }
+
+        return $equation;
+    }
+
+    /**
+     * Used to send `Email Reset Link` mail to user's new email address.
+     *
+     * - Token is generated with validity of 24 hours.
+     *
+     * - Email reset link with token is sent to user's new email address.
+     *
+     * @param Request $request
+     * @return mixed
+     * @throws \Exception
+     */
+    public function emailReset(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'new_email' => 'required|email',
+        ]);
+        if ($validator->fails()) {
+            return response()->api(false, implode(', ', $validator->errors()->all()), null);
+        }
+
+        $challenge = AuthorizationChallenge::findValidPassedByUserIdByComplexity(Auth::id(), AuthorizationChallenge::EMAIL_RESET_COMPLEXITY);
+        if (true == empty($challenge)) {
+            return response()->api(false, 'Challenge not completed', null);
+        }
+
+        $userId = Auth::user()->id;
+        $username = Auth::user()->username;
+        $oldEmail = Auth::user()->email;
+        $newEmail = $request->new_email;
+        if ($oldEmail == $newEmail) {
+            return response()->api(false, 'New email address is same as old email address', null);
+        }
+        $validity = now()->addHours(24);
+        $token = generateRandomString(20);
+        $previousResets = EmailReset::findByUserId($userId);
+        if (false == empty($previousResets)) {
+            //change status of user's previous email resets to INACTIVE;
+            $previousResets->status = EmailReset::INACTIVE;
+            $previousResets->save();
+        }
+
+        $resetEmail = EmailReset::createReset($userId, $oldEmail, $newEmail, $token, $validity);
+
+        Mail::to($newEmail)->queue(new SendResetMail(
+            $username,
+            config('app.url') . sprintf($this->verificationSlug, $token),
+            $newEmail,
+            $validity
+        ));
+
+        return response()->api(true, 'Email Sent Successfully', null);
+    }
+
+    /**
+     * Used to verify the token and its validity sent in new email address of the user to reset email.
+     *
+     * @param string $token
+     * @return mixed
+     */
+    public function verifyEmail($token)
+    {
+        $emailReset = EmailReset::findByToken($token);
+        if (true == empty($emailReset)) {
+            return response()->api(false, 'Token not matched', null);
+        }
+
+        if (false == $emailReset->valid_till->gt(now())) {
+            return response()->api(false, 'This link has been expired. Kindly reset the email again.', null);
+        }
+
+        if ($emailReset->email_reset_status == EmailReset::VERIFIED) {
+            return response()->api(false, 'Link already used.', null);
+        }
+
+        $newEmail = $emailReset->new_email;
+        $userId = $emailReset->user_id;
+        $resetId = $emailReset->id;
+
+        $user = User::updateEmail($newEmail, $userId);
+        $reset = EmailReset::updateStatusAsVerified($resetId);
+
+        return response()->api(true, 'Email Reset Successfully, Kindly use the new email id for logging in', null);
+    }
+
+    /**
+     * Used to fetch users logins and logouts i.e `user access logs` with date and time
+     *
+     * @param Request $request
+     * @return mixed
+     */
+    public function getAccessHistory(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'offset' => 'sometimes|required|integer',
+            'limit' => 'sometimes|required|integer',
+            'month' => 'sometimes|required|integer|min:1|max:12',
+            'year' => 'sometimes|required|integer|min:2018|max:2100',
+        ]);
+        if ($validator->fails()) {
+            return response()->api(false, implode(', ', $validator->errors()->all()), null);
+        }
+
+        $logs = UserAccessLog::getUALogs($request->offset ?? 0, $request->limit ?? 10, $request->month ?? date('m'), $request->year ?? date('Y'), Auth::id());
+
+        $eventLogs = EventLogger::getByUserIdByUserAccessIds(Auth::id(), $logs->pluck('id'))->keyBy('user_access_log_id');
+        foreach ($logs as $log) {
+            if (false == empty($eventLogs[$log->id])) {
+                $eventLog = $eventLogs[$log->id];
+                $log->state = $eventLog->state;
+                $log->country = $eventLog->country;
+            } else {
+                $log->state = null;
+                $log->country = null;
+            }
+        }
+
+        return response()->api(true, 'Successfully fetched access history', $logs);
+    }
+
+    /**
+     * Calculates Advertisement price in currency.
+     * 
+     * @param float|int $marginPercentage
+     * @param float $currencyRate
+     * @param float $coinPrice
+     * @return float|int
+     */
+    private function adPriceCalculator($marginPercentage, $currencyRate, $coinPrice)
+    {
+        $price = $coinPrice * $currencyRate;
+        return $price += $price * ($marginPercentage / 100);
+    }
+}
+

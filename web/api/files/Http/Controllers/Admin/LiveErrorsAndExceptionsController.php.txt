@@ -1,0 +1,90 @@
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use Illuminate\Http\Request;
+use App\Http\Controllers\Controller;
+use App\Events\ErrorBroadcasting;
+use App\Models\Dispute;
+use Validator;
+use Storage;
+use Illuminate\Support\Facades\Crypt;
+
+class LiveErrorsAndExceptionsController extends Controller
+{
+    public function populateError(Request $request)
+    {
+        $logContents = Storage::disk('local')->get('logs/BROADCASTED_LOGS/all_logs.json');
+        return response()->json(array('success' => true, 'logs' => $logContents));
+    }
+
+    public function redirectLaravelLog($date)
+    {
+        $filename = 'laravel-' . $date . '.log';
+        return redirect()->route('cs.logs.laravel', ['l' => encrypt($filename)]);
+    }
+
+    public function cronError(Request $request)
+    {
+        $error = array();
+
+        $validator = Validator::make($request->all(), [
+            'type' => 'required',
+            'message' => 'required'
+        ]);
+        if ($validator->fails()) {
+
+            //create a custom array for error
+            $error = array(
+                'type' => 'Custom',
+                'message' => $validator->errors()->all(),
+                'date' => date('Y-m-d')
+            );
+
+        } else {
+            $error = array(
+                'type' => $request->type,
+                'message' => $request->message,
+                'date' => date('Y-m-d')
+            );
+        }
+        $objError = json_encode($error);
+        broadcast(new ErrorBroadcasting($objError));
+
+        return response()->api(true, 'error braodcasted succesfully', []);
+    }
+
+    public function clearLiveErrorLogs(Request $request)
+    {
+
+
+        $validator = Validator::make($request->all(), [
+            'uniqueKey' => 'required'
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(array('success' => false, 'errors' => $validator->errors()->all()));
+        }
+
+        $uniqueKeys = $request->uniqueKey;
+
+        $contents = json_decode(Storage::disk('local')->get('logs/BROADCASTED_LOGS/all_logs.json'), true);
+
+        foreach ($uniqueKeys as $key) {
+            unset($contents[$key]);
+        }
+
+        $remaining_count = count($contents);
+
+        $contents = json_encode($contents);
+
+        Storage::disk('local')->put('logs/BROADCASTED_LOGS/all_logs.json', $contents);
+
+        return response()->json(array(
+            'success' => true,
+            'message' => 'Logs deleted successfully',
+            'remaining' => $remaining_count
+        ));
+    }
+}
+

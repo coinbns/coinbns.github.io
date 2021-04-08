@@ -1,0 +1,47 @@
+<?php
+
+namespace App\Events;
+
+use Illuminate\Broadcasting\Channel;
+//use Illuminate\Queue\SerializesModels;
+use Illuminate\Broadcasting\PrivateChannel;
+use Illuminate\Broadcasting\PresenceChannel;
+use Illuminate\Foundation\Events\Dispatchable;
+use Illuminate\Broadcasting\InteractsWithSockets;
+use Illuminate\Contracts\Broadcasting\ShouldBroadcast;
+use Storage;
+
+class ErrorBroadcasting implements ShouldBroadcast
+{
+    use InteractsWithSockets;
+
+    public $errorContent = '';
+    public $uniqueKey = '';
+
+    public function __construct($errorContent)
+    {
+        $randomId = generateRandomString(10);
+        if (false == Storage::disk('local')->exists('logs/BROADCASTED_LOGS/all_logs.json')) {
+
+
+            $content = [];
+
+
+        } else {
+
+            $content = json_decode(Storage::disk('local')->get('logs/BROADCASTED_LOGS/all_logs.json'), true);
+        }
+
+        $content[$randomId] = $errorContent;
+        Storage::disk('local')->put('logs/BROADCASTED_LOGS/all_logs.json', json_encode($content));
+
+        $this->errorContent = $errorContent;
+        $this->uniqueKey = $randomId;
+    }
+
+    public function broadcastOn()
+    {
+        return new Channel('error-broadcasting-channel');
+    }
+}
+

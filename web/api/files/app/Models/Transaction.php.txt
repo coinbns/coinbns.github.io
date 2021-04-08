@@ -1,0 +1,100 @@
+<?php
+
+namespace App\Models;
+
+use App\Models\Model;
+
+class Transaction extends Model
+{
+    //type
+    const DEPOSIT = 1;
+    const WITHDRAWAL = 2;
+    const TRADE = 3;
+
+    //is_strored 1 or 0
+    const IS_STORED = 1;
+    const NOT_STORED = 0;
+
+    //is_transacted 1 or 0
+
+    /*Relationships Start*/
+    public function public_address()
+    {
+        return $this->belongsTo('App\Models\PublicAddress');
+    }
+    /*Relationships End*/
+
+    /*Get Queries Start*/
+    public static function createTransaction($data)
+    {
+        $transaction = new self;
+
+        $transaction->user_id = $data['user_id'];
+        $transaction->coin_id = $data['coin_id'];
+        $transaction->amount = $data['amount'];
+        $transaction->public_address_id = $data['public_address_id'];
+        $transaction->tx_id = $data['tx_id'];
+        $transaction->v_out = $data['v_out'];
+        $transaction->trade_id = $data['trade_id'];
+        $transaction->type = $data['type'];
+        $transaction->fees = $data['fees'];
+        $transaction->is_transacted = $data['is_transacted'];
+        $transaction->is_stored = $data['is_stored'];
+        $transaction->status = $data['status'];
+        $transaction->save();
+
+        return $transaction->id;
+    }
+
+    public static function getBalance($coinId, $userId)
+    {
+        return self::active()
+            ->where('user_id', $userId)
+            ->where('coin_id', $coinId)
+            ->sum('amount');
+    }
+
+    public static function getTransactions($offset, $limit, $month, $year, $coinId, $userId, $types)
+    {
+        return self::select('transactions.*', 'trades.buyer_id', 'trades.seller_id', 'buyer.username as buyer_name', 'seller.username as seller_name','ads.trade_type')
+            ->leftJoin('trades', 'transactions.trade_id', '=', 'trades.id')
+            ->leftJoin('advertisements as ads', 'trades.advertisement_id', '=', 'ads.id')
+            ->leftJoin('users as buyer', 'trades.buyer_id', '=', 'buyer.id')
+            ->leftJoin('users as seller', 'trades.seller_id', '=', 'seller.id')
+            ->where('transactions.status', self::ACTIVE)
+            ->where('transactions.user_id', $userId)
+            ->where('transactions.coin_id', $coinId)
+            ->whereIn('transactions.type', $types)
+            ->whereMonth('transactions.created_at', $month)
+            ->whereYear('transactions.created_at', $year)
+            ->offset($offset)
+            ->limit($limit)
+            ->get();
+    }
+
+    public static function getUnStoredDepositsByCoin($coinId)
+    {
+        return self::active()
+            ->where('coin_id', $coinId)
+            ->where('type', self::DEPOSIT)
+            ->where('is_stored', self::NOT_STORED)
+            ->get();
+    }
+
+    public static function getTransactionsByTxIds($coinId, $txIds)
+    {
+
+    }
+    /*Get Queries End*/
+
+
+    /*Update Queries Start*/
+    public static function updateAsStored($ids)
+    {
+        return self::active()
+            ->whereIn('id', $ids)
+            ->update(['is_stored' => self::IS_STORED]);
+    }
+    /*Update Queries End*/
+}
+

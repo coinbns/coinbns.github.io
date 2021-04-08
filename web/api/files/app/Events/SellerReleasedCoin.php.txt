@@ -1,0 +1,29 @@
+<?php
+
+namespace App\Events;
+
+use Illuminate\Broadcasting\Channel;
+use Illuminate\Queue\SerializesModels;
+use Illuminate\Broadcasting\PrivateChannel;
+use Illuminate\Broadcasting\PresenceChannel;
+use Illuminate\Foundation\Events\Dispatchable;
+use Illuminate\Broadcasting\InteractsWithSockets;
+use Illuminate\Contracts\Broadcasting\ShouldBroadcast;
+
+class SellerReleasedCoin implements ShouldBroadcast
+{
+    use InteractsWithSockets, SerializesModels;
+
+    public $tradeId;
+
+    public function __construct($tradeId)
+    {
+        $this->tradeId = encodeHash($tradeId);
+    }
+
+    public function broadcastOn()
+    {
+        return new PresenceChannel('chat-trade.'.$this->tradeId);
+    }
+}
+

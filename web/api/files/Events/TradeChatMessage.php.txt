@@ -1,0 +1,40 @@
+<?php
+
+namespace App\Events;
+
+use Illuminate\Broadcasting\Channel;
+use Illuminate\Queue\SerializesModels;
+use Illuminate\Broadcasting\PrivateChannel;
+use Illuminate\Broadcasting\PresenceChannel;
+use Illuminate\Foundation\Events\Dispatchable;
+use Illuminate\Broadcasting\InteractsWithSockets;
+use Illuminate\Contracts\Broadcasting\ShouldBroadcast;
+
+class TradeChatMessage implements ShouldBroadcast
+{
+    use InteractsWithSockets, SerializesModels;
+
+    public $id;//chatMessageId    
+    public $messageContent;
+    public $messageType;
+    public $tradeId;
+    public $recipientId;
+    public $recipientReadAt;
+
+    public function __construct($recipientId, $tradeId, $messageType, $messageContent, $id)
+    {
+        $this->tradeId = encodeHash($tradeId);
+        $this->messageType = $messageType;
+        $this->messageContent = $messageContent;
+        $this->recipientId = encodeHash($recipientId);
+        $this->recipientReadAt = null;
+        $this->id = $id;
+    }
+
+    public function broadcastOn()
+    {
+        // return new PresenceChannel('chat-trade.'.$this->tradeId);
+        return new PrivateChannel('users.'. $this->recipientId);
+    }
+}
+

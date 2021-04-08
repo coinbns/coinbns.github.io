@@ -1,0 +1,197 @@
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use App\Mail\VerifyRegistration;
+use App\Rules\Phone_number;
+use Illuminate\Http\Request;
+use App\Http\Controllers\Controller;
+use Auth;
+use Validator;
+use DB;
+use App\Models\Admin;
+use App\Role;
+use App\RoleUser;
+use App\Models\OauthAccessToken;
+use App\Models\UserMnemonic;
+use App\Models\UserSecurityProfile;
+use App\Models\UnregisteredUser;
+use Hash;
+use Illuminate\Support\Facades\Mail;
+
+class UsersController extends Controller
+{
+    protected $registrationPage = '/register/%s';
+
+    public function viewUsers()
+    {
+        return view('admin.users.view')->with([
+            'users' => Admin::getSupportUsers(),
+            'roles' => Role::getRolesExceptSuper()
+        ]);
+    }
+
+    public function findAvailableUsername(Request $request)
+    {
+        if (Admin::findbyUsername($request->username)) {
+            return response()->json(array('success' => false, 'msg' => $request->username . ' is already taken !'));
+        } else {
+            return response()->json(array('success' => true, 'msg' => $request->username . ' is Available'));
+        }
+    }
+
+    public function checkUserEmail(Request $request)
+    {
+
+        $validator = Validator::make($request->all(), [
+            'email' => 'required|email',
+        ]);
+        if ($validator->fails()) {
+            return response()->json(array('success' => false, 'msg' => $validator->errors()->all()));
+        }
+
+        if (Admin::findbyEmail($request->email)) {
+            return response()->json(array(
+                'success' => false,
+                'msg' => 'Already a user with email: ' . $request->email
+            ));
+        } else {
+            return response()->json(array('success' => true, 'msg' => $request->email . ' is Available'));
+        }
+    }
+
+    public function createUsers(Request $request)
+    {
+
+        $validator = request()->validate([
+            'email' => 'required|email',
+            'user_role' => 'required',
+            'name' => 'required',
+            'uname' => 'required',
+            'password' => 'required',
+            'contact' => [
+                'required',
+                new Phone_number()
+            ]
+        ]);
+
+        $user = Admin::create(array(
+            'username' => $request->uname,
+            'email' => $request->email,
+            'name' => $request->name,
+            'password' => bcrypt($request->password),
+            'contact' => $request->contact,
+            'status' => 1
+        ));
+
+        $user->attachRole(Role::findById($request->user_role));
+        return redirect()->route('admin.users');
+    }
+
+    public function editUser($userId)
+    {
+        $user = Admin::findById($userId);
+        if ($user) {
+            return view('admin.users.edit')->with(
+                [
+                    'user' => $user,
+                    'roles' => Role::getRolesExceptSuper(),
+                    'user_role' => RoleUser::findByUserId($userId)
+                ]
+            );
+        } else {
+            abort(404);
+        }
+    }
+
+    public function updateUser(Request $request)
+    {
+
+        $validator = request()->validate([
+            'email' => 'required|email',
+            'user_role' => 'required',
+            'name' => 'required',
+            'uname' => 'required',
+            'contact' => [
+                'required',
+                new Phone_number()
+            ]
+        ]);
+
+        $userId = $request->user_id;
+        $user = Admin::findById($userId);
+
+        $user->username = $request->uname;
+        $user->email = $request->email;
+        $user->name = $request->name;
+        $user->contact = $request->contact;
+
+        if ( ! empty($request->password)) {
+            $user->password = bcrypt($request->password);
+        }
+        $user->save();
+
+        RoleUser::deleteByUserId($userId);
+        $user->attachRole(Role::findById($request->user_role));
+
+        return redirect()->route('admin.user.edit', array($userId));
+    }
+
+    public function viewLoggedInUsers()
+    {
+        return view('admin.users.users_logged_in')->with('logged', OauthAccessToken::get());
+    }
+
+    public function forceLogout($userId)
+    {
+
+        OauthAccessToken::deleteByUserId($userId);
+        return redirect()->route('cs.users.logged');
+    }
+
+    public function viewMnemonics()
+    {
+        return view('admin.users.active_mnemonics')->with('activeMnemonics', UserMnemonic::active()->get());
+    }
+
+    public function deleteMnemonics($userId)
+    {
+        UserMnemonic::updateStatus($userId, 2);
+        UserSecurityProfile::updateMnemonicGenerated($userId, 0);
+        return redirect()->route('admin.users.mnemonics');
+    }
+
+    public function viewUnregisteredUsers()
+    {
+        $unregistered=UnregisteredUser::getUnregisteredUsers();
+        return view('admin.users.unregistered_users')->with('unregisteredUsers',$unregistered);
+    }
+
+    public function deleteUnregisteredUsers($id)
+    {
+        UnregisteredUser::destroy($id);
+
+        return redirect()->route('cs.unregistered.users');
+    }
+
+    public function resetUnregisteredUsers($id)
+    {
+        $unregUser=UnregisteredUser::find($id);
+
+        $codeValidityHours = 2;
+        $registrationCode = generateRandomString(20);
+
+        $unregUser->registration_code=$registrationCode;
+
+        $unregUser->save();
+
+        Mail::to($unregUser->email)->queue(new VerifyRegistration(
+            $unregUser->username,
+            config('app.url') . sprintf($this->registrationPage, $registrationCode),
+            $codeValidityHours
+        ));
+
+        return redirect()->route('cs.unregistered.users');
+    }
+}
+

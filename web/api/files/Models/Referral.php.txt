@@ -1,0 +1,132 @@
+<?php
+
+namespace App\Models;
+
+use App\Models\Model;
+
+class Referral extends Model
+{
+    //referral_status
+    const USED = 1;
+    const CREDITED = 2;
+    const IMBURSED = 3;
+
+    const REFERRAL_PERCENTAGE = 0.4;
+    const REFERRAL_DEFAULT_AMOUNT = 2;
+
+    /*Relationship Start*/
+
+    /*Relationship End*/
+
+    /*Create Queries Start*/
+
+    public static function createReferral($data)
+    {
+        $referral = new self;
+
+        $referral->unregistered_user_id = $data['unregistered_user_id'];
+        $referral->referrer_user_id = $data['referrer_user_id'];
+        $referral->coin_id = $data['coin_id'];
+        $referral->referred_user_id = $data['referred_user_id'];
+        $referral->max_coin_treshold = $data['max_coin_treshold'];
+        $referral->amount_to_credit = $data['amount_to_credit'];
+        $referral->referral_status = $data['referral_status'];
+        $referral->status = $data['status'];
+        $referral->save();
+        
+        return $referral;
+    }
+
+    /*Create Queries End*/
+
+    /*Find Queries Start*/
+
+    public static function findUnusedReferral($coinId, $referrerUserId)
+    {   
+        return self::where('coin_id', $coinId)
+            ->where('referrer_user_id', $referrerUserId)
+            ->where('referral_status', self::UNUSED)
+            ->active()
+            ->first();
+    }
+
+    public static function findInactiveByUnregisteredUserId($unregisteredUserId)
+    {   
+        return self::where('unregistered_user_id', $unregisteredUserId)
+            ->inActive()
+            ->first();
+    }
+
+    public static function findReferredUser($referredUserId)
+    {   
+        return self::where('referred_user_id', $referredUserId)
+            ->active()
+            ->first();
+    }
+
+    public static function getReferrerUserTotalCreditedAmount($coinId, $referrerUserId)
+    {   
+        return self::where('coin_id', $coinId)
+            ->where('referrer_user_id', $referrerUserId)
+            ->whereIn('referral_status', [self::CREDITED, self::IMBURSED])
+            ->active()
+            ->sum('amount_to_credit');
+    }
+
+    /*Find Queries End*/
+
+    /*Get Queries Start*/
+
+    public static function getUserReferrals($offset, $limit, $coinId, $referrerUserId)
+    {
+        return self::select(
+            'users.username', 
+            'referrals.referred_user_id',
+            'referrals.amount_to_credit',
+            'referrals.created_at', 
+            'referrals.referral_status'
+            )
+            ->join('users', 'users.id', '=', 'referrals.referred_user_id')
+            ->where('referrals.coin_id', $coinId)
+            ->where('referrals.referrer_user_id', $referrerUserId)
+            ->where('referrals.status', self::ACTIVE)     
+            ->offset($offset)
+            ->limit($limit)
+            ->get();
+    }
+
+    public static function getUsedReferrals()
+    {
+        return self::where('referral_status', self::USED)
+            ->active()
+            ->get();
+    }
+
+    public static function getCreditedReferralsByCoinId($coinId)
+    {
+        return self::where('referral_status', self::CREDITED)
+            ->where('coin_id', $coinId)
+            ->active()
+            ->get();
+    }
+
+    /*Get Queries Start*/
+
+    /*Update Queries Start*/
+
+    public static function updateToImbursed($ids)
+    {   
+        return self::active()
+            ->whereIn('id', $ids)
+            ->update([
+                'referral_status' => self::IMBURSED,
+            ]);
+    }
+
+    /*Update Queries End*/
+
+
+
+
+}
+

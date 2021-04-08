@@ -1,0 +1,119 @@
+<?php
+
+namespace App\Models;
+
+use Laravel\Passport\HasApiTokens;
+use Illuminate\Notifications\Notifiable;
+use Illuminate\Foundation\Auth\User as Authenticatable;
+
+class User extends Authenticatable
+{
+    use HasApiTokens, Notifiable;
+
+    const ACTIVE = 1;
+    const INACTIVE = 2;
+    const DELETED = 0;
+
+    public $dates = ['suspended_till', 'last_login'];
+    /**
+     * The attributes that should be hidden for arrays.
+     *
+     * @var array
+     */
+    protected $hidden = [
+        'password',
+    ];
+
+    /*Relationships Start*/
+    public function mnemonic()
+    {
+        return $this->hasOne('App\Models\UserMnemonic')->active();
+    }
+
+    public function security_profile()
+    {
+        return $this->hasOne('App\Models\UserSecurityProfile')->active();
+    }
+    /*Relationships End*/
+
+    /*Create Queries Start*/
+    public static function createUser($data)
+    {
+        $user = new self;
+
+        $user->username = $data['username'];
+        $user->email = $data['email'];
+        $user->name = $data['name'];
+        $user->password = $data['password'];
+        $user->country_id = $data['country_id'];
+        $user->contact = $data['contact'];
+        $user->is_kyc_approved = $data['is_kyc_approved'];
+        $user->last_login = $data['last_login'];
+        $user->remember_token = $data['remember_token'];
+        $user->gauth_timestamp = $data['gauth_timestamp'];
+        $user->suspended_till = $data['suspended_till'];
+        $user->status = $data['status'];
+        $user->save();
+
+        return $user->id;
+    }
+    /*Create Queries End*/
+
+    /*Find Queries Start*/
+    public static function findByMobile($mobile, $userId)
+    {
+        return self::where('contact', $mobile)->where('id', '<>', $userId)->first();
+    }
+
+    public static function findByUsername($username)
+    {
+        return self::where('username', $username)->first();
+    }
+
+    public static function findByEmail($email)
+    {
+        return self::where('email', $email)->first();
+    }
+
+    public static function findById($id)
+    {
+        return self::where('id', $id)->first();
+    }
+    /*Find Queries End*/
+
+    /*Update Queries Start*/
+    public static function updateUser($id, $data)
+    {
+        return self::where('id', $id)->update($data);
+    }
+
+    public static function updateLastLogin($userId)
+    {
+        return self::where('id', $userId)
+            ->update([
+                'last_login' => now()
+            ]);
+    }
+
+    public static function updatePassword($password, $userId)
+    {
+        return self::where('id', $userId)
+            ->update([
+                'password' => $password
+            ]);
+    }
+
+    public static function updateEmail($newEmail, $userId)
+    {
+        return self::where('id', $userId)->update(['email' => $newEmail]);
+    }
+    /*Update Queries End*/
+
+    /*Non Static Functions Start*/
+    public function receivesBroadcastNotificationsOn()
+    {
+        return 'users.' . encodeHash($this->id);
+    }
+    /*Non Static Functions End*/
+}
+

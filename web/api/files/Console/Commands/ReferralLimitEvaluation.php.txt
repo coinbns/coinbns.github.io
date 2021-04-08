@@ -1,0 +1,100 @@
+<?php
+
+namespace App\Console\Commands;
+
+use App\Models\Coin;
+use App\Models\Referral;
+use App\Models\Trade;
+use App\Models\Transaction;
+use App\Models\TransactionLog;
+use App\Models\User;
+use App\Models\UserCoin;
+use App\Models\WithdrawalRequest;
+use App\Events\BalanceUpdate;
+use Illuminate\Console\Command;
+
+class ReferralLimitEvaluation extends Command
+{
+    /**
+     * The name and signature of the console command.
+     *
+     * @var string
+     */
+    protected $signature = 'referral:evaluateLimit';
+
+    /**
+     * The console command description.
+     *
+     * @var string
+     */
+    protected $description = 'Command description';
+
+    /**
+     * Create a new command instance.
+     *
+     * @return void
+     */
+    public function __construct()
+    {
+        parent::__construct();
+    }
+
+    /**
+     * Execute the console command.
+     *
+     * @return mixed
+     */
+    public function handle()
+    {
+        $usedReferrals = Referral::getUsedReferrals();
+        foreach ($usedReferrals as $referral) {
+            $userCoin = UserCoin::findUserCoin($referral->coin_id, $referral->referred_user_id);
+            if (true == empty($userCoin) && $userCoin->trade_volume < $referral->max_coin_treshold) {
+                continue;
+            }
+            $coin = Coin::find($referral->coin_id);
+            $referrerUser = User::find($referral->referrer_user_id);
+            $referredUser = User::find($referral->referred_user_id);
+            //creating referral deposit
+            $transactionId = Transaction::createTransaction([
+                'user_id' => $referral->referrer_user_id,
+                'coin_id' => $referral->coin_id,
+                'amount' => $referral->amount_to_credit,
+                'public_address_id' => null,
+                'tx_id' => null,
+                'v_out' => null,
+                'trade_id' => null,
+                'type' => Transaction::REFERRAL_DEPOSIT,
+                'fees' => 0,
+                'is_transacted' => 1,
+                'is_stored' => 0,
+                'status' => Transaction::ACTIVE,
+            ]);
+
+            TransactionLog::createLog([
+                'user_id' => $referral->referrer_user_id,
+                'transaction_id' => $transactionId,
+                'description' => "{$referral->amount_to_credit} {$coin->symbol} is deposited by referral for {$referrerUser->username} by referred user {$referredUser->username} on completion of {$referral->max_coin_treshold} {$coin->symbol}",
+                'created_at' => now(),
+                'status' => TransactionLog::ACTIVE,
+            ]);
+
+            $balance = Transaction::getBalance($referral->coin_id, $referral->referrer_user_id);
+            // dump($balance);
+            UserCoin::updateBalance($referral->coin_id, $referral->referrer_user_id, $balance);
+            
+            $openTrades = Trade::getEscrowTradesBySellerId($referral->coin_id, $referral->referrer_user_id);
+            $balance -= $openTrades->sum('coin_original_value');
+            $pendingWithdrawals = WithdrawalRequest::getUnprocessedRequestByUser($referral->coin_id, $referral->referrer_user_id);
+            $balance -= $pendingWithdrawals->sum('amount');
+
+            broadcast(new BalanceUpdate($referral->referrer_user_id, $coin->symbol, number_format($balance, 6, ".", "")));
+
+            $referral->referral_status = Referral::CREDITED;
+            $referral->save();
+
+            $referrerUser->notify();
+        }
+    }
+}
+

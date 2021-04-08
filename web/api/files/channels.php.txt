@@ -1,0 +1,124 @@
+<?php
+
+use App\Models\Trade;
+use App\Models\Dispute;
+use Hashids\Hashids;
+/*
+|--------------------------------------------------------------------------
+| Broadcast Channels
+|--------------------------------------------------------------------------
+|
+| Here you may register all of the event broadcasting channels that your
+| application supports. The given channel authorization callbacks are
+| used to check if an authenticated user can listen to the channel.
+|
+*/
+
+//Broadcast::channel('error-broadcasting-channel',function (){
+//    return true;
+//});
+
+Broadcast::channel('guilty-found-{disputeId}-{userId}',function ($user, $disputeId, $userId){
+    if (get_class(Auth::user()) == 'App\Models\Admin') {
+        return true;
+    } else if (get_class(Auth::user()) == 'App\Models\User') {
+        if($userId==$user->id) {
+            /*
+             * check is user is associated with that disputeId
+             */
+            $check = Dispute::findUsersByDisputeId($disputeId);
+            //dd($check);
+            if (empty($check)) {
+                return false;
+            } else {
+                if ($check->buyer_id == Auth::user()->id) {
+                    return true;
+                } else if ($check->seller_id == Auth::user()->id) {
+                    return true;
+                }
+                else{
+                    return false;
+                }
+            }
+        }else{
+            return false;
+        }
+
+    }
+});
+
+
+Broadcast::channel('users.{id}', function ($user, $id) {
+    if (config('app.enable_hashid')) {
+        $id = (new Hashids(config('app.hashid_secret'), config('app.hashid_length')))->decode($id)[0] ?? null;
+    }
+    if (get_class(Auth::user()) == 'App\Models\Admin') {
+        return true;
+    } else {
+        if (get_class(Auth::user()) == 'App\Models\User') {
+            return (int)$user->id === (int)$id;
+        }
+    }
+});
+
+Broadcast::channel('chat-trade.{tradeId}', function ($user, $tradeId) {
+    if (config('app.enable_hashid')) {
+        $tradeId = (new Hashids(config('app.hashid_secret'), config('app.hashid_length')))->decode($tradeId)[0] ?? null;
+    }
+    $trade = Trade::findTrade($tradeId);
+    if (true == empty($trade)
+        || false == $trade->isUserInvolved($user)) {
+            return false;
+    }
+    // return true;
+    // return ['id' => $user->id, 'username' => $user->username];
+    return ['username' => $user->username];
+});
+
+Broadcast::channel('chat-dispute.{disputeId}-{userId}', function ($user, $disputeId,$userId) {
+    if (get_class(Auth::user()) == 'App\Models\Admin') {
+        return ['id' => $user->id, 'username' => $user->username];
+    } else if (get_class($user) == 'App\Models\User') {
+
+        if($userId!=$user->id){
+            return false;
+        }
+        /*
+        * check if user is associated with that disputeId
+        */
+        $check = Dispute::findUsersByDisputeId($disputeId);
+        //dd($check);
+        if (empty($check)) {
+            return false;
+        } else {
+            if ($check->buyer_id == Auth::user()->id) {
+                return ['id' => $user->id, 'username' => $user->username];
+            } else if ($check->seller_id == Auth::user()->id) {
+                return ['id' => $user->id, 'username' => $user->username];
+            }
+            else{
+                return false;
+            }
+        }
+
+    }
+});
+
+Broadcast::channel('rtc-notification.{disputeId}', function ($user, $disputeId) {
+        return ['id' => $user->id, 'username' => $user->username];
+});
+
+
+
+Broadcast::channel('order.{orderId}', function ($user, $orderId) {
+    
+    // return $user->id === Order::findOrNew($orderId)->user_id;
+    // dd($user);
+    return true;
+    // return [
+    //     'id' => $user->id,
+    //     'image' => $user->image(),
+    //     'full_name' => $user->full_name
+    //     ];
+});
+

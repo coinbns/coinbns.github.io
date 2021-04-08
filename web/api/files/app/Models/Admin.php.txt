@@ -1,0 +1,175 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Support\Facades\DB;
+use Laravel\Passport\HasApiTokens;
+use Illuminate\Notifications\Notifiable;
+use Illuminate\Foundation\Auth\User as Authenticatable;
+use Auth;
+use Hash;
+use Zizaco\Entrust\Traits\EntrustUserTrait;
+
+class Admin extends Authenticatable
+{
+    use EntrustUserTrait;
+
+    protected $fillable = ['username', 'email', 'name', 'password', 'contact', 'status'];
+
+    /**
+     * User with Role SUPERADMIN
+     */
+    const SUPERADMIN = 1;
+    /**
+     * By Default, CS = `admin` in `Roles` table
+     * User with Role CS
+     */
+    const CS = 2;
+
+    /**
+     * User Status DELETED = 0
+     */
+    const DELETED = 0;
+    /**
+     * User Status ACTIVE = 1
+     */
+    const ACTIVE = 1;
+    /**
+     * User Status INACTIVE = 2
+     */
+    const INACTIVE = 2;
+
+    /**
+     * By Default, we have set this name in `Roles` Table.
+     *
+     * This is the actual constant for the Admin Panel user: Super
+     *
+     * If you change the name in `Roles` table then you must change here also.
+     */
+    const SUPER = 'Super';
+
+    use HasApiTokens, Notifiable;
+
+    /**
+     * The attributes that should be hidden for arrays.
+     *
+     * @var array
+     */
+    protected $hidden = [
+        'password',
+    ];
+
+    /*public static function findByUsername($username)
+    {
+        return self::where('username', $username)->first();
+    }*/
+
+    /*Create Queries Start*/
+    public static function createUser($data)
+    {
+        $admin = new self;
+
+        $admin->role_id = $data['role_id'];
+        $admin->username = $data['username'];
+        $admin->email = $data['email'];
+        $admin->name = $data['name'];
+        $admin->password = Hash::make($data['password']);
+        $admin->contact = $data['contact'];
+        $admin->status = $data['status'];
+        return $admin->save();
+    }
+    /*Create Queries End*/
+
+    /*Find Queries Start Here*/
+
+    public static function findbyUsername($username)
+    {
+        return self::where([
+            'username' => $username,
+            'status' => self::ACTIVE
+        ])->first();
+    }
+
+    public static function findbyEmail($email)
+    {
+        return self::where([
+            'email' => $email,
+            'status' => self::ACTIVE
+        ])->first();
+    }
+
+    /**
+     * <b>Query to find the available admin for Dispute.</b>
+     *
+     * Any user when raises as dispute then this query finds the user with Role = `admin`, with least number of Open Disputes
+     * @return mixed
+     */
+    public static function findAvailableCS()
+    {
+        return self::leftjoin('disputes', 'disputes.admin_id', '=', 'admins.id')
+            ->where([
+                'admins.role_id' => self::CS
+            ])
+            ->select(DB::raw('admins.id,sum(case when disputes.status = 1 then 1 else 0 end) as open_disputes'))
+            ->groupBy('admins.id')
+            ->orderBy('open_disputes')
+            ->first();
+    }
+
+    /**
+     * <b>Query to find the available Ticket Manager.</b>
+     *
+     * Any user when raises as ticket then this query finds the admin, with least number of Open Tickets
+     * @return mixed
+     */
+    public static function findAvailableTicketManager()
+    {
+        return self::from('admins As adm')
+            ->leftjoin('role_user As ru', 'ru.user_id', '=', 'adm.id')
+            ->leftjoin('permission_role As pr', 'pr.role_id', '=', 'ru.role_id')
+            ->leftjoin('permissions As p', 'p.id', '=', 'pr.permission_id')
+            ->leftjoin('ticket_queries As tq', function ($q) {
+                $q->on('tq.admin_id', '=', 'adm.id')->where('tq.ticket_status', '=', TicketQuery::OPEN);
+            })
+            ->select(DB::raw('adm.id,count(tq.admin_id) as total_count'))
+            ->where('p.name', 'can-manage-tickets')
+            ->groupby('adm.id')
+            ->orderby('total_count', 'asc')->first();
+    }
+
+    public static function findById($id)
+    {
+        return self::where([
+            'id' => $id,
+            'status' => self::ACTIVE
+        ])->first();
+    }
+
+    /*Find Queries End Here*/
+
+    /*GET Queries Start Here*/
+
+    public static function getSupportUsers()
+    {
+        return self::from('admins As adm')
+            ->join('role_user As ru', 'ru.user_id', '=', 'adm.id')
+            ->join('roles As r', 'r.id', '=', 'ru.role_id')
+            ->select(
+                'adm.*',
+                'r.name As role_name'
+            )
+            ->where('adm.id', '!=', Auth::guard('admin')->user()->id)->get();
+    }
+
+    /*GET Queries End Here*/
+
+    /*UPDATE Queries Start*/
+
+    public static function updateUser($userId, $data)
+    {
+        return self::where('id', $userId)->update($data);
+    }
+
+    /*UPDATE Queries End*/
+}
+

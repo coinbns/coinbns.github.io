@@ -1,0 +1,116 @@
+<?php
+
+namespace App\Models;
+
+use App\Models\Model;
+
+class UserAccessLog extends Model
+{
+    //access_type
+    const LOGIN = 1;
+    const LOGOUT = 2;
+    const REFRESH_TOKEN = 3;
+
+    /*Create Queries Start*/
+    public static function createLog($data)
+    {
+        $log = new self;
+
+        $log->user_id = $data['user_id'];
+        $log->client_id = $data['client_id'];
+        $log->user_agent = $data['user_agent'];
+        $log->ip_address = $data['ip_address'];
+        $log->access_type = $data['access_type'];
+        $log->to_verify_login = $data['to_verify_login'];
+        $log->is_login_verified = $data['is_login_verified'];
+        $log->verification_retry_count = $data['verification_retry_count'];
+        $log->to_verify_mnemonic = $data['to_verify_mnemonic'];
+        $log->is_mnemonic_verified = $data['is_mnemonic_verified'];
+        $log->status = $data['status'];
+
+        return $log->save();
+    }
+    /*Create Queries End*/
+
+    /*Find Queries Start*/
+    public static function findLatestByTypeByUserByClient($type, $userId, $clientId)
+    {
+        return self::where('access_type', $type)
+            ->where('user_id', $userId)
+            ->where('client_id', $clientId)
+            ->latest()
+            ->first();
+    }
+
+    /**
+     * Find latest user access log with security profile
+     * @param int $type Login/Logout
+     * @param int $userId user id
+     * @param int $clientId id of user client in `oauth_clients` table i.e web,mobile,node subscriber or personal
+     * @return mixed
+     */
+    public static function findLatestWithSecurityProfile($type, $userId, $clientId)
+    {
+        return self::select(
+            'user_access_logs.user_agent',
+            'user_access_logs.ip_address',
+            'user_access_logs.ip_address',
+            'user_access_logs.to_verify_login',
+            'user_access_logs.is_login_verified',
+            'user_access_logs.to_verify_mnemonic',
+            'user_access_logs.is_mnemonic_verified',
+            'user_security_profiles.is_contact_verified',
+            'user_security_profiles.is_mnemonic_generated',
+            'user_security_profiles.verification_methods',
+            'user_security_profiles.is_start_verification_complete'
+        )
+            ->leftJoin('user_security_profiles', 'user_security_profiles.user_id', '=', 'user_access_logs.user_id')
+            ->where('user_access_logs.access_type', $type)
+            ->where('user_access_logs.user_id', $userId)
+            ->where('user_access_logs.client_id', $clientId)
+            ->orderBy('user_access_logs.created_at', 'desc')
+            ->first();
+    }
+    /*Find Queries End*/
+
+    /*Get Queries Start*/
+    public static function allRecords()
+    {
+        $log = self::active()->get();
+        return $log;
+    }
+
+    public static function getByUserId($userId)
+    {
+        return self::where('user_id', $userId)->get();
+    }
+
+    public static function getUALogsByDates($from, $to)
+    {
+        return self::where('created_at', '>=', $from)
+            ->where('created_at', '<=', $to)->get();
+    }
+
+    public static function getUALogs($offset = null, $limit = null, $month = null, $year = null, $userId)
+    {
+        return self::select(
+                'oauth_clients.name As client_type',
+                'user_access_logs.id',
+                'user_access_logs.is_login_verified',
+                'user_access_logs.user_agent',
+                'user_access_logs.ip_address',
+                'user_access_logs.access_type',
+                'user_access_logs.created_at'
+            )
+            ->leftJoin('oauth_clients', 'oauth_clients.id', '=', 'user_access_logs.client_id')
+            ->offset($offset)
+            ->limit($limit)
+            ->whereMonth('user_access_logs.created_at', $month)
+            ->whereYear('user_access_logs.created_at', $year)
+            ->where('user_access_logs.user_id', $userId)
+            ->latest('user_access_logs.created_at')
+            ->get();
+    }
+    /*Get Queries End*/
+}
+

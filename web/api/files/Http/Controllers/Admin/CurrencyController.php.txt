@@ -1,0 +1,91 @@
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use Illuminate\Http\Request;
+use App\Http\Controllers\Controller;
+use Auth;
+use Validator;
+use DB;
+use App\Models\Currency;
+
+class CurrencyController extends Controller
+{
+    public function viewCurrencies()
+    {
+        return view('admin.currency.list')->with('currencies', Currency::latest()->get());
+    }
+
+    public function viewAddCurrency()
+    {
+        return view('admin.currency.add_currency');
+    }
+
+    public function addCurrency(Request $request)
+    {
+        $validator = request()->validate([
+            'name' => 'required|unique:currencies,name',
+            'symbol' => 'required|max:3|unique:currencies,symbol',
+            'code' => 'required',
+            'native_code' => 'required',
+            'rate' => 'required|numeric'
+        ]);
+
+        Currency::createCurrency(array(
+            'name' => $request->name,
+            'symbol' => $request->symbol,
+            'code' => $request->code,
+            'code_native' => $request->native_code,
+            'rate' => $request->rate
+        ));
+        return redirect()->route('admin.currencies');
+    }
+
+    public function viewEditCurrency($currencyId)
+    {
+        $currency = Currency::findById($currencyId);
+        if ($currency) {
+            return view('admin.currency.edit_currency')->with('currency', $currency);
+        } else {
+            abort(404);
+        }
+    }
+
+    public function updateCurrency(Request $request)
+    {
+
+        $validator = request()->validate([
+            'name' => 'required',
+            'symbol' => 'required',
+            'code' => 'required',
+            'native_code' => 'required',
+            'rate' => 'required|numeric'
+        ]);
+
+        Currency::updateCurrency($request->currency_id, array(
+            'name' => $request->name,
+            'symbol' => $request->symbol,
+            'code' => $request->code,
+            'code_native' => $request->native_code,
+            'rate' => $request->rate
+        ));
+        return redirect()->route('admin.currency.edit', array($request->currency_id));
+
+    }
+
+    public function updateStatus(Request $request)
+    {
+
+        $curId = $request->cur_id;
+        $status = $request->status;
+        $data = array(
+            'status' => $status
+        );
+        if (Currency::updateCurrency($curId, $data)) {
+            return response()->json(array('success' => true));
+        } else {
+            return response()->json(array('success' => false));
+        }
+    }
+}
+

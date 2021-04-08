@@ -1,0 +1,32 @@
+<?php
+
+namespace App\Models;
+
+use \App\Models;
+use Auth;
+
+class DisputeScreenShare extends Model
+{
+    /*Create Queries Start*/
+    public static function create($data)
+    {
+        $share = new self;
+
+        $share->dispute_id = $data['dispute_id'];
+        $share->user_id = $data['user_id'];
+        $share->wrtc_url = $data['wrtc_url'];
+
+        $share->save();
+        return $share->id;
+    }
+    /*Create Queries End*/
+
+    /*Update Queries Start*/
+    public static function updateUrlById($id, $url)
+    {
+        return self::where('id', $id)
+            ->update(['wrtc_url' => $url]);
+    }
+    /*Update Queries End*/
+}
+

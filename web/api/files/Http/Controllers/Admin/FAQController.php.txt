@@ -1,0 +1,148 @@
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use Illuminate\Http\Request;
+use App\Http\Controllers\Controller;
+use Validator;
+use Illuminate\Validation\Rule;
+use App\Models\FaqTopic;
+use App\Models\Faq;
+
+class FAQController extends Controller
+{
+    public function viewFaqTopics()
+    {
+        return view('admin.faq.topics')->with('topics', FaqTopic::get());
+    }
+
+    public function createFaqTopics(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'topic' => 'required'
+        ]);
+        if ($validator->fails()) {
+            return redirect()->route('cs.faq.topics')->withErrors($validator->errors()->all());
+        }
+
+        $topicCreated = FaqTopic::createTopic($request->topic);
+
+        return redirect()->route('cs.faq.topics');
+    }
+
+    public function viewFaqTopicsEdit($topicId)
+    {
+        $topic = FaqTopic::findById($topicId);
+
+        if (true == $topic) {
+            return view('admin.faq.topic_edit')->with(['topic' => $topic]);
+        } else {
+            abort(404);
+        }
+    }
+
+    public function updateFaqTopic(Request $request, $topicId)
+    {
+        $topic = FaqTopic::findById($topicId);
+        if (true == $topic) {
+            $validator = Validator::make($request->all(), [
+                'topic' => 'required',
+                'status' => [
+                    'required',
+                    Rule::in([
+                        FaqTopic::ACTIVE,
+                        FaqTopic::INACTIVE,
+                    ]),
+                ],
+            ]);
+            if ($validator->fails()) {
+                return redirect()->route('cs.faq.topic_edit',
+                    ['topicId' => $topicId])->withErrors($validator->errors()->all());
+            }
+
+            $topicUpdated = FaqTopic::updateTopic($topicId, $request->topic, $request->status);
+            return redirect()->route('cs.faq.topics');
+        } else {
+            abort(404);
+        }
+    }
+
+    public function viewFaqs()
+    {
+        return view('admin.faq.faqs')->with([
+            'topics' => FaqTopic::getTopics(),
+            'faqs' => Faq::getSlimFaqs()
+        ]);
+    }
+
+    public function createFaq(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'topic_id' => 'required',
+            'question' => 'required',
+            'answer' => 'required'
+        ]);
+        if ($validator->fails()) {
+            return redirect()->route('cs.faqs')->withErrors($validator->errors()->all());
+        }
+
+        $topicId = $request->topic_id;
+        $question = $request->question;
+        $answer = $request->answer;
+
+        //check selected topic id is available in DB or not
+
+        if (true == FaqTopic::findById($topicId)) {
+            $faqCreated = Faq::createFaq($topicId, $question, $answer);
+            return redirect()->route('cs.faqs');
+        } else {
+            abort(404);
+        }
+    }
+
+    public function viewEditFaq($faqId)
+    {
+        $faq = Faq::findByFaqId($faqId);
+
+        if (true == $faq) {
+            return view('admin.faq.faq_edit')->with([
+                'topics' => FaqTopic::getTopics(),
+                'faq' => $faq
+            ]);
+        } else {
+            abort(404);
+        }
+    }
+
+    public function updateFaq(Request $request, $faqId)
+    {
+        $validator = Validator::make($request->all(), [
+            'topic_id' => 'required',
+            'question' => 'required',
+            'answer' => 'required',
+            'status' => [
+                'required',
+                Rule::in([
+                    Faq::ACTIVE,
+                    Faq::INACTIVE,
+                ]),
+            ],
+        ]);
+        if ($validator->fails()) {
+            return redirect()->route('cs.faq.edit', ['faqId' => $faqId])->withErrors($validator->errors()->all());
+        }
+
+        $topicId = $request->topic_id;
+        $question = $request->question;
+        $answer = $request->answer;
+        $status = $request->status;
+
+        if (false == ($faqTopic = FaqTopic::findById($topicId))) {
+            abort(404);
+        } else {
+            $faqUpdated = Faq::updateFaq($faqId, $topicId, $question, $answer, $status);
+            return redirect()->route('cs.faq.create');
+        }
+    }
+}
+

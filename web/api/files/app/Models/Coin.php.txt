@@ -1,0 +1,94 @@
+<?php
+
+namespace App\Models;
+
+use App\Models\Model;
+
+class Coin extends Model
+{
+    //status
+    const DELETED = 0;
+    const ACTIVE = 1;
+    const INACTIVE = 2;
+
+    /*Relationship Start*/
+    public function detail()
+    {
+        return $this->hasOne('App\Models\CoinDetail');
+    }
+    /*Relationship End*/
+
+    /*Create Queries Start*/
+    public static function createCoin($data)
+    {
+        $coin = new self;
+
+        $coin->symbol = $data['symbol'];
+        $coin->name = $data['name'];
+        $coin->price = $data['price'];
+        $coin->color = $data['color'];
+        $coin->status = $data['status'];
+        $coin->save();
+
+        return $coin->id;
+    }
+    /*Create Queries End*/
+
+    /*Find Queries Start*/
+    public static function findBySymbol($symbol)
+    {
+        return self::active()->where('symbol', $symbol)->first();
+    }
+
+    public static function findById($id)
+    {
+        return self::active()->where('id', $id)->first();
+    }
+    /*Find Queries End*/
+
+    /*Get Queries Start*/
+    public static function getAllSymbols()
+    {
+        return self::select('symbol')
+            ->get();
+    }
+
+    public static function getCoins()
+    {
+        return self::get();
+    }
+
+    public static function getCoinsWithDetail()
+    {
+        return self::with('detail')->get();
+    }
+
+    public static function getActiveCoins()
+    {
+        return self::active()->get();
+    }
+    /*Get Queries Start*/
+
+    /*Update Queries Start*/
+    public static function updateStatus($id, $status)
+    {
+        return self::where('id', $id)
+            ->update([
+                'status' => $status,
+            ]);
+    }
+
+    public static function updatePriceBySymbol($symbol, $price)
+    {
+        return self::where('symbol', 'like', "%{$symbol}")
+            ->update([
+                'price' => $price,
+            ]);
+    }
+    /*Update Queries End*/
+
+
+
+
+}
+

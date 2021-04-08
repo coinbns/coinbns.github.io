@@ -1,0 +1,22 @@
+<?php
+
+namespace App\Http\Controllers\Home;
+
+use Illuminate\Http\Request;
+use App\Http\Controllers\Controller;
+use Storage;
+
+class TncController extends Controller
+{
+    /**
+     * To get contents from `tnc.txt` file stored in `root/storage/app`
+     *
+     * @return mixed
+     */
+    public static function getContents()
+    {
+        $contents = Storage::get('tnc.txt');
+        return response()->api(true, 'Success', $contents);
+    }
+}
+

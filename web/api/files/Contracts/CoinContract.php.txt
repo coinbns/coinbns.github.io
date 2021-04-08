@@ -1,0 +1,16 @@
+<?php
+
+namespace App\Coins\Contracts;
+
+interface CoinContract
+{
+    public function getMiscDataValidatorFields();
+    public function addressValidator($address);
+    public function getWithdrawalApprovalLimit($coin);
+    public function getRecievingAddress($coin, $user);
+    public function storeCoin($coin);
+    public function depositAmount($request);
+    public function markAddress($request);
+    public function transferCoin($coin);
+}
+

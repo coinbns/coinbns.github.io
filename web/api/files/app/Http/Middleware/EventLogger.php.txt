@@ -1,0 +1,175 @@
+<?php
+
+namespace App\Http\Middleware;
+
+use Closure;
+use Auth;
+use App\Models\EventLogger as Logger;
+use App\Models\OauthClient;
+use Jenssegers\Agent\Agent;
+use App\Models\Advertisement;
+
+class EventLogger
+{
+    /**
+     * Handle an incoming request.
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @param  \Closure  $next
+     * @return mixed
+     */
+    public function handle($request, Closure $next, $event = null)
+    {
+        $request->request->add(["event" => $event]);
+        return $next($request);
+    }
+
+    public function terminate($request, $response)
+    {
+        $agent = new Agent();
+        $event=$request->event;
+        if(true==$event) {
+            $location = json_decode(getLocationByIpAddress($request->ip()));
+            if ($event == Logger::LOGIN) {
+                $client_id = $request->client_id;
+            } else {
+                $client_id = Auth::user()->token()->client_id;
+            }
+
+            $data = [
+                'user_id' => null,
+                'country_code' => $location->country_code,
+                'country' => $location->country,
+                'state_code' => $location->state_code,
+                'state' => $location->state,
+                'latitude' => $location->latitude,
+                'longitude' => $location->longitude,
+                'coin_id' => $request->coin_id,
+                'coin_original_value'=>null,
+                'client_id' => $client_id,
+                'client_name' => OauthClient::find($client_id)->name,
+                'is_accepted' => null,
+                'advertisement_id' => null,
+                'trade_id' => null,
+                'same_country' => null
+            ];
+
+            if(OauthClient::find($client_id)->name==OauthClient::WEB){
+                $data['browser'] = $agent->browser();
+                $data['device'] = $agent->device();
+                $data['platform'] = $agent->platform();
+            }elseif (OauthClient::find($client_id)->name==OauthClient::Mobile){
+                $data['browser'] = 'MOBILE';
+                $data['device'] = 'MOBILE';
+                $data['platform'] = $agent->platform();
+            }else{
+                $data['browser'] = null;
+                $data['device'] = null;
+                $data['platform'] = null;
+            }
+
+            switch ($event) {
+                case Logger::LOGIN:
+                    $content = json_decode($response->getContent(), true);
+                    if (true == $content['status']) {
+                        $data['type'] = Logger::LOGIN;
+                        $data['user_id'] = Auth::user()->id;
+
+                        Logger::createLog($data);
+                    }
+                    break;
+
+                case Logger::LOGOUT:
+                    $data['user_id'] = Auth::user()->id;
+                    $data['type'] = Logger::LOGOUT;
+
+                    Logger::createLog($data);
+                    break;
+
+                case Logger::AD_CREATE:
+                    $content = json_decode($response->getContent(), true);
+                    if ($content['message']==Advertisement::AD_CREATED_MSG) {
+                        $data['user_id'] = Auth::user()->id;
+                        $data['advertisement_id'] = $content['data'];
+                        $data['type'] = Logger::AD_CREATE;
+
+                        $adId=$content['data'];
+                        $adCountry=Advertisement::findCountryOfAd($adId)->country_name;
+                        if($location->country==$adCountry){
+                            $data['same_country'] = true;
+                        }
+
+                        Logger::createLog($data);
+                    }
+                    break;
+
+                case Logger::AD_RESPOND:
+                    $content = json_decode($response->getContent(), true);
+                    if (true == $content['data']) {
+                        $data['user_id'] = Auth::user()->id;
+                        $data['advertisement_id'] = $content['data']['advertisementId'];
+                        $data['trade_id'] = $content['data']['tradeId'];
+                        $data['coin_original_value'] = $content['data']['coin_original_value'];
+                        $data['type'] = Logger::AD_RESPOND;
+                        Logger::createLog($data);
+                    }
+                    break;
+
+                case Logger::TRADE_RESPOND:
+                    $content = json_decode($response->getContent(), true);
+                    if (true == $content['data']) {
+                        $data['user_id'] = Auth::user()->id;
+                        $data['is_accepted'] = $content['data']['is_accepted'];
+                        $data['trade_id'] = $content['data']['trade_id'];
+                        $data['type'] = Logger::TRADE_RESPOND;
+                        Logger::createLog($data);
+                    }
+                    break;
+
+                case Logger::TRADE_COMPLETE:
+                    $content = json_decode($response->getContent(), true);
+                    if (true == $content['data']) {
+                        $data['user_id'] = Auth::user()->id;
+                        $data['trade_id'] = $content['data']['trade_id'];
+                        $data['advertisement_id'] = $content['data']['advertisement_id'];
+                        $data['coin_original_value'] = $content['data']['coin_original_value'];
+                        $data['type'] = Logger::TRADE_COMPLETE;
+                        Logger::createLog($data);
+                    }
+                    break;
+
+                case Logger::TRADE_CANCEL:
+                    $content = json_decode($response->getContent(), true);
+                    if (true == $content['data']) {
+                        $data['user_id'] = Auth::user()->id;
+                        $data['trade_id'] = $content['data']['trade_id'];
+                        $data['type'] = Logger::TRADE_CANCEL;
+                        Logger::createLog($data);
+                    }
+                    break;
+
+                case Logger::TRADE_DISPUTE:
+                    $content = json_decode($response->getContent(), true);
+                    if (true == $content['data']) {
+                        $data['user_id'] = Auth::user()->id;
+                        $data['trade_id'] = $content['data']['trade_id'];
+                        $data['type'] = Logger::TRADE_DISPUTE;
+                        Logger::createLog($data);
+                    }
+                    break;
+
+                case Logger::AD_REPORT:
+                    $content = json_decode($response->getContent(), true);
+                    if (true == $content['data']) {
+                        $data['user_id'] = Auth::user()->id;
+                        $data['advertisement_id'] = $content['data']['ad_id'];
+                        $data['type'] = Logger::AD_REPORT;
+                        Logger::createLog($data);
+                    }
+                    break;
+            }
+        }
+
+    }
+}
+

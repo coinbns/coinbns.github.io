@@ -1,0 +1,34 @@
+<?php
+
+namespace App\Models;
+
+use App\Models\Model;
+
+/**
+ * Base Model to write methods in their respective section.
+ *
+ * Class BaseModel
+ * @package App\Models
+ */
+class BaseModel extends Model
+{
+    /*Constants Declarations Start*/
+    /*Constants Declarations End*/
+
+    /*Relations Start*/
+    /*Relations End*/
+
+    /*Create Queries Start*/
+    /*Create Queries End*/
+
+    /*Find Queries Start*/
+    /*Find Queries End*/
+
+    /*Get Queries Start*/
+    /*Get Queries End*/
+
+    /*Update Queries Start*/
+    /*Update Queries End*/
+
+}
+

@@ -1,0 +1,61 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+
+class EmailReset extends Model
+{
+    public $dates = [
+        'valid_till'
+    ];
+
+    public $timestamps = false;
+
+    //statuses
+    const UNVERIFIED = 1;
+    const VERIFIED = 0;
+
+    /*Create Queries Start*/
+    public static function createReset($userId, $oldEmail, $newEmail, $token, $validity)
+    {
+        $emailReset = new self();
+
+        $emailReset->user_id = $userId;
+        $emailReset->old_email = $oldEmail;
+        $emailReset->new_email = $newEmail;
+        $emailReset->token = $token;
+        $emailReset->valid_till = $validity;
+        $emailReset->created_at = now();
+
+        $emailReset->save();
+
+        return $emailReset->id;
+
+    }
+    /*Create Queries End*/
+
+    /*Find Queries Start*/
+    public static function findByUserId($userId)
+    {
+        return self::where([
+            'user_id'=>$userId,
+            'status'=>self::UNVERIFIED
+            ])
+            ->latest()
+            ->first();
+    }
+
+    public static function findByToken($token)
+    {
+        return self::where('token',$token)->first();
+    }
+    /*Find Queries End*/
+
+    /*Update Queries Start*/
+    public static function updateStatusAsVerified($resetId){
+        return self::where('id', $resetId)->update(['status'=>self::VERIFIED]);
+    }
+    /*Update Queries End*/
+}
+

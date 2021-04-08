@@ -1,0 +1,34 @@
+<?php
+
+namespace App\Events;
+
+use Illuminate\Broadcasting\Channel;
+use Illuminate\Queue\SerializesModels;
+use Illuminate\Broadcasting\PrivateChannel;
+use Illuminate\Broadcasting\PresenceChannel;
+use Illuminate\Foundation\Events\Dispatchable;
+use Illuminate\Broadcasting\InteractsWithSockets;
+use Illuminate\Contracts\Broadcasting\ShouldBroadcast;
+
+
+class DisputeChatMessageSeller implements ShouldBroadcast
+{
+    use InteractsWithSockets, SerializesModels;
+
+    public $messageContent;
+    public $disputeId;
+    public $userId;
+
+    public function __construct($disputeId, $messageContent, $userId)
+    {
+        $this->disputeId = $disputeId;
+        $this->userId = $userId;
+        $this->messageContent = $messageContent;
+    }
+
+    public function broadcastOn()
+    {
+        return new PrivateChannel('chat-dispute-seller.'.$this->disputeId);
+    }
+}
+

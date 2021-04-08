@@ -1,0 +1,42 @@
+<?php
+
+namespace App\Mail;
+
+use Illuminate\Bus\Queueable;
+use Illuminate\Mail\Mailable;
+use Illuminate\Queue\SerializesModels;
+use Illuminate\Contracts\Queue\ShouldQueue;
+
+class EmailSubscriptionVerify extends Mailable
+{
+    use Queueable, SerializesModels;
+    protected $message;
+    protected $subscriptionAddress;
+
+    /**
+     * Create a new message instance.
+     *
+     * @return void
+     */
+    public function __construct($message, $subscriptionAddress)
+    {
+        $this->message=$message;
+        $this->subscriptionAddress=$subscriptionAddress;
+    }
+
+    /**
+     * Build the message.
+     *
+     * @return $this
+     */
+    public function build()
+    {
+        $email= $this->subject(config('app.name')." : Please verify to start receiving our newsletters")->markdown('emails.subscription_verify')->with([
+            'message' => $this->message,
+            'subscriptionAddress' => $this->subscriptionAddress
+        ]);
+
+        return $email;
+    }
+}
+

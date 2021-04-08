@@ -1,0 +1,203 @@
+<?php
+
+namespace App\Jobs;
+
+use Illuminate\Bus\Queueable;
+use Illuminate\Queue\SerializesModels;
+use Illuminate\Queue\InteractsWithQueue;
+use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Foundation\Bus\Dispatchable;
+use Illuminate\Support\Facades\Log;
+use App\Models\EventLogger as Logger;
+use App\Models\OauthClient;
+use App\Models\Advertisement;
+use App\Models\UserAccessLog;
+use Auth;
+
+class ProcessEventLogger implements ShouldQueue
+{
+    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+
+    protected $response;
+    protected $request;
+    protected $user_id;
+    protected $ip;
+    protected $client_id;
+    protected $response_contents;
+    protected $coin_id;
+    protected $browser;
+    protected $device;
+    protected $platform;
+    /**
+     * Create a new job instance.
+     *
+     * @return void
+     */
+    public function __construct($request, $response, $user_id, $ip, $client_id, $response_contents, $coin_id, $browser, $device, $platform)
+    {
+        $this->response = $response;
+        $this->request = $request;
+        $this->user_id = $user_id;
+        $this->ip = $ip;
+        $this->client_id = $client_id;
+        $this->response_contents = $response_contents;
+        $this->coin_id = $coin_id;
+        $this->browser = $browser;
+        $this->device = $device;
+        $this->platform = $platform;
+    }
+
+    /**
+     * Execute the job.
+     *
+     * @return void
+     */
+    public function handle()
+    {
+        $event=$this->request['event'];
+        if(true==$event) {
+            $location = json_decode(getLocationByIpAddress($this->ip));
+
+            $data = [
+                'user_id' => null,
+                'user_access_log_id' => null,
+                'country_code' => $location->country_code,
+                'country' => $location->country,
+                'state_code' => $location->state_code,
+                'state' => $location->state,
+                'latitude' => $location->latitude,
+                'longitude' => $location->longitude,
+                'coin_id' => $this->coin_id,
+                'coin_original_value'=>null,
+                'client_id' => $this->client_id,
+                'client_name' => OauthClient::find($this->client_id)->name,
+                'is_accepted' => null,
+                'advertisement_id' => null,
+                'trade_id' => null,
+                'same_country' => null
+            ];
+
+            if(OauthClient::find($this->client_id)->name==OauthClient::WEB){
+                $data['browser'] = $this->browser;
+                $data['device'] = $this->device;
+                $data['platform'] = $this->platform;
+            }elseif (OauthClient::find($this->client_id)->name==OauthClient::Mobile){
+                $data['browser'] = 'MOBILE';
+                $data['device'] = 'MOBILE';
+                $data['platform'] = $this->platform;
+            }else{
+                $data['browser'] = null;
+                $data['device'] = null;
+                $data['platform'] = null;
+            }
+            // dump($event);
+            switch ($event) {
+                case Logger::LOGIN:
+                    $content = json_decode($this->response_contents, true);
+                    if (true == $content['status']) {
+                        $data['type'] = Logger::LOGIN;
+                        $data['user_id'] = $this->user_id;
+                        $userAccessLog = UserAccessLog::findLatestByTypeByUserByClient(UserAccessLog::LOGIN, $this->user_id, $this->client_id);
+                        if (false == empty($userAccessLog)) {
+                            $data['user_access_log_id'] = $userAccessLog->id;                        
+                        }
+                        Logger::createLog($data);
+                    }
+                    break;
+
+                case Logger::LOGOUT:
+                    $data['user_id'] = $this->user_id;
+                    $data['type'] = Logger::LOGOUT;
+                    $userAccessLog = UserAccessLog::findLatestByTypeByUserByClient(UserAccessLog::LOGOUT, $this->user_id, $this->client_id);
+                    if (false == empty($userAccessLog)) {
+                        $data['user_access_log_id'] = $userAccessLog->id;                        
+                    }
+                    Logger::createLog($data);
+                    break;
+
+                case Logger::AD_CREATE:
+                    $content = json_decode($this->response_contents, true);
+                    if ($content['message']==Advertisement::AD_CREATED_MSG) {
+                        $data['user_id'] = $this->user_id;
+                        $data['advertisement_id'] = $content['data']['id'];
+                        $data['type'] = Logger::AD_CREATE;
+
+                        $adId=(int)decodeHash($content['data']['id']);
+                        $adCountry=Advertisement::findCountryOfAd($adId)->country_name;
+                        if($location->country==$adCountry){
+                            $data['same_country'] = true;
+                        }
+
+                        Logger::createLog($data);
+                    }
+                    break;
+
+                case Logger::AD_RESPOND:
+                    $content = json_decode($this->response_contents, true);
+                    if (true == $content['data']) {
+                        $data['user_id'] = $this->user_id;
+                        $data['advertisement_id'] = $content['data']['advertisement_id'];
+                        $data['trade_id'] = $content['data']['trade_id'];
+                        $data['coin_original_value'] = $content['data']['coin_original_value'];
+                        $data['type'] = Logger::AD_RESPOND;
+                        Logger::createLog($data);
+                    }
+                    break;
+
+                case Logger::TRADE_RESPOND:
+                    $content = json_decode($this->response_contents, true);
+                    if (true == $content['data']) {
+                        $data['user_id'] = $this->user_id;
+                        $data['is_accepted'] = $content['data']['is_accepted'];
+                        $data['trade_id'] = $content['data']['trade_id'];
+                        $data['type'] = Logger::TRADE_RESPOND;
+                        Logger::createLog($data);
+                    }
+                    break;
+
+                case Logger::TRADE_COMPLETE:
+                    $content = json_decode($this->response_contents, true);
+                    if (true == $content['data']) {
+                        $data['user_id'] = $this->user_id;
+                        $data['trade_id'] = $content['data']['trade_id'];
+                        $data['advertisement_id'] = $content['data']['advertisement_id'];
+                        $data['coin_original_value'] = $content['data']['coin_original_value'];
+                        $data['type'] = Logger::TRADE_COMPLETE;
+                        Logger::createLog($data);
+                    }
+                    break;
+
+                case Logger::TRADE_CANCEL:
+                    $content = json_decode($this->response_contents, true);
+                    if (true == $content['data']) {
+                        $data['user_id'] = $this->user_id;
+                        $data['trade_id'] = $content['data']['trade_id'];
+                        $data['type'] = Logger::TRADE_CANCEL;
+                        Logger::createLog($data);
+                    }
+                    break;
+
+                case Logger::TRADE_DISPUTE:
+                    $content = json_decode($this->response_contents, true);
+                    if (true == $content['data']) {
+                        $data['user_id'] = $this->user_id;
+                        $data['trade_id'] = $content['data']['trade_id'];
+                        $data['type'] = Logger::TRADE_DISPUTE;
+                        Logger::createLog($data);
+                    }
+                    break;
+
+                case Logger::AD_REPORT:
+                    $content = json_decode($this->response_contents, true);
+                    if (true == $content['data']) {
+                        $data['user_id'] = $this->user_id;
+                        $data['advertisement_id'] = $content['data']['ad_id'];
+                        $data['type'] = Logger::AD_REPORT;
+                        Logger::createLog($data);
+                    }
+                    break;
+            }
+        }
+    }
+}
+

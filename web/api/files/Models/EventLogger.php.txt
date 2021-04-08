@@ -1,0 +1,278 @@
+<?php
+
+namespace App\Models;
+
+use App\Models\MongoModel as Model;
+
+class EventLogger extends Model
+{
+    //event types
+    const LOGIN = 1;
+    const LOGOUT = 2;
+    const AD_CREATE = 3;
+    const AD_RESPOND = 4;
+    const TRADE_RESPOND = 5;
+    const TRADE_CANCEL = 6;
+    const TRADE_DISPUTE = 7;
+    const TRADE_COMPLETE = 8;
+    const TICKET_CREATE = 9;
+    const AD_REPORT = 10;
+    const USER_REPORT = 11;
+    const WITHDRAWAL_REQUEST = 12;
+
+    /*Create Queries Start*/
+    /**
+     * Create a log entry in mongoDB for each event such as Login, Logout etc.
+     * Used for exclusively for analytics.
+     *
+     * @param $data
+     */
+    public static function createLog($data)
+    {
+        $log = new self();
+        
+        $log->advertisement_id = (int)decodeHash($data['advertisement_id']);
+        $log->user_access_log_id = (int)$data['user_access_log_id'];
+        $log->coin_original_value = (double)$data['coin_original_value'];
+        $log->same_country = (bool)$data['same_country'];
+        $log->trade_id = (int)decodeHash($data['trade_id']);
+        $log->is_accepted = (bool)$data['is_accepted'];
+        $log->user_id = (int)$data['user_id'];
+        $log->country_code = $data['country_code'];
+        $log->country = $data['country'];
+        $log->state_code = $data['state_code'];
+        $log->state = $data['state'];
+        $log->latitude = (float)$data['latitude'];
+        $log->longitude = (float)$data['longitude'];
+        $log->coin_id = (int)$data['coin_id'];
+        $log->client_id = (int)$data['client_id'];
+        $log->client_name = $data['client_name'];
+        $log->browser = $data['browser'];
+        $log->device = $data['device'];
+        $log->platform = $data['platform'];
+        $log->type = (int)$data['type'];
+
+        $log->save();
+    }
+    /*Create Queries End*/
+
+    /*Find Queries Start*/
+    public static function checkSameCountry($adId)
+    {
+        return self::select('same_country')->where(['type' => self::AD_CREATE, 'advertisement_id' => $adId])->first();
+    }
+
+    public static function findUsersLastEventLocation($userId, $event)
+    {
+        return self::where([
+            'user_id' =>$userId,
+            'type' =>$event
+        ])->first();
+    }
+    /*Find Queries End*/
+
+    /*Get Queries Start*/
+    public static function getUsersByTypeLogin()
+    {
+
+        $q = self::raw()->aggregate(
+            [
+                array(
+                    '$match' => array(
+                        'type' => self::LOGIN
+                    )
+                ),
+                array(
+                    '$group' => array(
+                        '_id' => array(
+                            'lat' => '$latitude',
+                            'long' => '$longitude',
+                            'country' => '$country',
+                            'state' => '$state'
+                        ),
+                        'count' => array('$sum' => 1)
+                    )
+                )
+            ]
+        );
+
+        return $q;
+    }
+
+    public static function getCountries()
+    {
+        return self::select('country')
+            ->groupBy('country')->get();
+    }
+
+    public static function getBrowsersByCountries($event)
+    {
+        $q = self::raw()->aggregate(
+            [
+                array(
+                    '$match' => array(
+                        'type' => $event
+                    )
+                ),
+                array(
+                    '$group' => array(
+                        '_id' => array(
+                            'country' => '$country_code',
+                            'state' => '$state',
+                            'browser' => '$browser',
+                        ),
+                        'count' => array('$sum' => 1)
+                    )
+                )
+            ]
+        );
+
+        return $q;
+    }
+
+    public static function getPlatformsByCountries($event)
+    {
+        $q = self::raw()->aggregate(
+            [
+                array(
+                    '$match' => array(
+                        'type' => $event
+                    )
+                ),
+                array(
+                    '$group' => array(
+                        '_id' => array(
+                            'country' => '$country_code',
+                            'state' => '$state',
+                            'platform' => '$platform',
+                        ),
+                        'count' => array('$sum' => 1)
+                    )
+                )
+            ]
+        );
+
+        return $q;
+    }
+
+    public static function getTrades($event)
+    {
+        $q = self::raw()->aggregate([
+            array(
+                '$match' => array(
+                    'type' => $event
+                )
+            ),
+            array(
+                '$group' => array(
+                    '_id' => array(
+                        'advertisement_id' => '$advertisement_id',
+                        'country' => '$country_code',
+                        'state' => '$state'
+                    ),
+                    'count' => array('$sum' => 1)
+                )
+            )
+        ]);
+
+        return $q;
+    }
+
+    public static function getAvgTradesByCountryByCoinId($coinId, $event)
+    {
+        $q = self::raw()->aggregate([
+            array(
+                '$match' => array(
+                    'type' => $event,
+                    'coin_id' => (int)$coinId
+                )
+            ),
+            array(
+                '$group' => array(
+                    '_id' => array(
+                        'country' => '$country_code',
+                    ),
+                    'coin_total_value' => array('$avg' => '$coin_original_value')
+                )
+            )
+        ]);
+
+        return $q;
+    }
+
+    public static function getTradesByCountryByStateByCoinId($coinId, $event)
+    {
+        $q = self::raw()->aggregate([
+            array(
+                '$match' => array(
+                    'type' => $event,
+                    'coin_id' => (int)$coinId
+                )
+            ),
+            array(
+                '$group' => array(
+                    '_id' => array(
+                        'country' => '$country_code',
+                        'state' => '$state'
+                    ),
+                    'coin_total_value' => array('$sum' => '$coin_original_value'),
+                    'total_count' => array('$sum' => 1)
+                )
+            )
+        ]);
+
+        return $q;
+    }
+
+    public static function getCoinsOfReportedAds()
+    {
+        $q = self::raw()->aggregate([
+            array(
+                '$match' => array(
+                    'type' => self::AD_REPORT
+                )
+            ),
+            array(
+                '$group' => array(
+                    '_id' => array(
+                        'coin_id' => '$coin_id'
+                    )
+                )
+            )
+        ]);
+        return $q;
+    }
+
+    public static function getReportedAdsByCoins()
+    {
+        $q = self::raw()->aggregate([
+            array(
+                '$match' => array(
+                    'type' => self::AD_REPORT
+                )
+            ),
+            array(
+                '$group' => array(
+                    '_id' => array(
+                        'country' => '$country_code',
+                        'state' => '$state',
+                        'coin_id' => '$coin_id'
+                    ),
+                    'total_count' => array('$sum' => 1)
+                )
+            )
+        ]);
+
+        return $q;
+    }
+
+    public static function getByUserIdByUserAccessIds($userId, $userAccessIds)
+    {
+        return self::select('state', 'country', 'user_access_log_id', 'user_id')
+            ->where('user_id', $userId)
+            ->whereIn('user_access_log_id', $userAccessIds)
+            ->get();
+    }
+    /*Get Queries End*/
+}
+

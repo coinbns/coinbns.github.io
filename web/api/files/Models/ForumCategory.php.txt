@@ -1,0 +1,54 @@
+<?php
+
+namespace App\Models;
+
+use App\Models\Model;
+
+class ForumCategory extends Model
+{
+    /*Relationships Start*/
+    /**
+     * @uses ForumPost
+     * @return \Illuminate\Database\Eloquent\Relations\HasMany
+     */
+    public function posts()
+    {
+        return $this->hasMany('App\Models\ForumPost');
+    }
+    /*Relationships End*/
+
+    /*Create Queries Start*/
+    public static function create($data)
+    {
+        $category = new self;
+
+        $category->title = $data['title'];
+        $category->url = $data['url'];
+
+        return $category->save();
+    }
+    /*Create Queries End*/
+
+    /*Find Queries Start*/
+    public static function findByURL($url)
+    {
+        return self::where('url', $url)->first();
+    }
+    /*Find Queries End*/
+
+    /*Get Queries Start*/
+    public static function getCategories()
+    {
+        return self::active()->get();
+    }
+    /*Get Queries End*/
+
+    /*Update Queries Start*/
+    public static function updateCategory($categoryId, $data)
+    {
+        return self::where('id', $categoryId)
+            ->update($data);
+    }
+    /*Update Queries End*/
+}
+

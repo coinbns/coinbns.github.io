@@ -1,0 +1,27 @@
+<?php
+
+namespace App\Trades;
+
+class TradeManager
+{
+    
+    public function __construct($coinSymbol)
+    {
+
+    }
+
+    public function initialize(array $inputs, array $outputs)
+    {
+        $this->inputs = $inputs;
+        $this->outputs = $outputs;
+
+        return $this;
+    }
+
+    public function generateWallet()
+    {
+
+    }
+
+}
+

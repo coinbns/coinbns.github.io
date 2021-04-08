@@ -1,0 +1,69 @@
+<?php
+
+namespace App\Models;
+
+use App\Models\Model;
+use DB;
+
+class ReportedAdvertisement extends Model
+{
+    /*Create Queries Start*/
+    public static function createAdReport($data)
+    {
+        $report = new self();
+
+        $report->advertisement_id = $data['advertisement_id'];
+        $report->user_id = $data['user_id'];
+        $report->message = $data['message'];
+
+        $report->save();
+        return $report->id;
+    }
+    /*Create Queries End*/
+
+    /*Find Queries Start*/
+    public static function findByAdIdUserId($adId, $userId)
+    {
+        return self::where(['advertisement_id' => $adId, 'user_id' => $userId])->first();
+    }
+
+    public static function findByAdId($adId)
+    {
+        return self::where(['advertisement_id' => $adId])->first();
+    }
+    /*Find Queries End*/
+
+    /*Get Queries Start*/
+    public static function getMessagesByAdId($adId, $offset = null, $limit = null)
+    {
+        $q =  self::where(['advertisement_id' => $adId])
+            ->leftjoin('users As u', 'u.id', '=', 'reported_advertisements.user_id')
+            ->select(
+                'reported_advertisements.*',
+                'u.username'
+            );
+        if(true==$limit && true == $offset){
+            $q = $q->offset($offset)->limit($limit);
+        }
+            $q = $q->latest()->get();
+
+        return $q;
+    }
+
+    public static function getReportedAds()
+    {
+        return self::join('advertisements As ads', 'ads.id', '=', 'reported_advertisements.advertisement_id')
+            ->join('countries As ctr', 'ctr.id', '=', 'ads.country_id')
+            ->join('currencies As cur', 'cur.id', '=', 'ads.currency_id')
+            ->select(
+                'reported_advertisements.advertisement_id As reported_ad_id',
+                'ctr.name As country_name',
+                'cur.name As currency_name',
+                'ads.is_reported',
+                DB::Raw('COUNT(reported_advertisements.advertisement_id) As no_of_reports')
+            )
+            ->groupBy('reported_advertisements.advertisement_id')->get();
+    }
+    /*Get Queries End*/
+}
+

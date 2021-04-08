@@ -1,0 +1,210 @@
+<?php
+
+namespace App\Http\Controllers\Home;
+
+use Illuminate\Http\Request;
+use Auth;
+use Validator;
+use App\Http\Controllers\Controller;
+use App\Events\DisputeChatMessage;
+use App\Events\DisputeChatMessageSeller;
+use App\Models\DisputeChatMessage as ChatModel;
+use App\Models\Dispute;
+use App\Models\DisputeFeedback;
+use Storage;
+use Intervention\Image\ImageManagerStatic as Image;
+
+class DisputeController extends Controller
+{
+    public function getDisputeChat($disputeId, Request $request)
+    {
+        /*
+         * check if dispute id is open or not
+         */
+        $dispute = Dispute::findOpenDisputeById($disputeId);
+        if (false == empty($dispute)) {
+            /*
+             * check if user is associated with that disputeId
+             */
+            $check = Dispute::findUsersByDisputeId($disputeId);
+            //dd($check->buyer_id);
+            if (($check->buyer_id == Auth::user()->id) || $check->seller_id == Auth::user()->id) {
+                /*
+                 * Get Dispute chats
+                 */
+                $chats = ChatModel::getChatMessagesByDisputeIdByUserId($disputeId, Auth::user()->id);
+                //get CS name and Trade ID
+                $data = [
+                    'disputed_trade_id' =>$dispute->trade_id,
+                    'admin_username' =>$dispute->admin_username,
+                    'chats' => $chats
+                ];
+                return response()->api(true, 'success', $data);
+            } else {
+                return response()->json(['message' => 'User not Associated with Dispute ID'], 403);
+            }
+        } else {
+            return response()->json(['message' => 'Dispute is closed'], 403);
+        }
+    }
+
+    public function disputeChat($disputeId, Request $request)
+    {
+        /*
+         * check if [open dispute] exist with disputeId
+         */
+        $ifDisputeOpen = \App\Models\Dispute::findOpenDisputeById($disputeId);
+        if (true == empty($ifDisputeOpen)) {
+            return response()->json(['message' => 'Not Found'], 403);
+        }
+
+        switch ($request->type) {
+            case ChatModel::TYPE_TEXT:
+                $content = $request->content;
+                break;
+            case ChatModel::TYPE_IMAGE:
+                $content = $request->content;
+
+                $image_type = substr($content, 5, strpos($content, ';') - 5);
+                $allowedImageType = [
+                    'image/jpeg',
+                    'image/jpg',
+                    'image/JPG',
+                    'image/JPEG',
+                    'image/png',
+                    'image/PNG',
+                ];
+
+                if (false == in_array($image_type, $allowedImageType)) {
+                    return response()->api(false, 'image is invalid', null);
+                }
+
+                $image = Image::make($content);
+                $watermark = Image::make(public_path('/images/faster.png'));
+                $image->insert($watermark, 'bottom-right', 10, 10);
+                $content = (string)$image->encode('data-url');
+
+                break;
+            case ChatModel::TYPE_DOC:
+                # code...
+                // $content = base64_decode(substr($request->contents, 28));
+                // if (true == empty($request->contents['data'])
+                //     || true == empty($request->contents['file_name']
+                //         || substr($request->contents['data'], 0, 28) != 'data:application/pdf;base64,')) {
+                //     return response()->api(false, 'pdf is invalid', null);
+                // }
+
+                preg_match("/^data:application\/(.*);base64/i", $request->content['data'], $match);
+                $extension = $match[1];
+
+
+                if (true == empty($request->content['data'])
+                    || true == empty($request->content['file_name'])
+                    || ! in_array($extension, [
+                        'pdf',
+                        'PDF'
+                    ])) {
+                    return response()->api(false, 'pdf is invalid', null);
+                }
+                $fileName = mt_rand() . '_og.pdf';
+                $destName = mt_rand() . '_dest.pdf';
+                $filePath = storage_path("app/{$fileName}");
+                $destPath = storage_path("app/{$destName}");
+                Storage::put($fileName, base64_decode(substr($request->content['data'], 28)));
+
+                $filepdf = fopen($filePath, "r");
+                if ($filepdf) {
+                    $line_first = fgets($filepdf);
+                    fclose($filepdf);
+                } else {
+                    return response()->api(false, 'Error opening file', null);
+                }
+                // extract number such as 1.4 ,1.5 from first read line of pdf file
+                preg_match_all('!\d+!', $line_first, $matches);
+                // save that number in a variable
+                $pdfversion = implode('.', $matches[0]);
+                $convertedName = null;
+                if ($pdfversion > "1.4") {
+                    $convertedName = mt_rand() . '_conv.pdf';
+                    $convertedPath = storage_path("app/{$convertedName}");
+                    $command = 'gs -dBATCH -dCompatibilityLevel=1.5 -dQUIET -dNOPAUSE -q -sDEVICE=pdfwrite -sOutputFile="' . $convertedPath . '" "' . $filePath . '"';
+                    $exe = shell_exec($command);
+                }
+
+                $pdf = new \setasign\Fpdi\Fpdi();
+                $pageCount = $pdf->setSourceFile($convertedPath ?? $filePath);
+                // dump($pageCount);
+                for ($i = 1; $i <= $pageCount; $i++) {
+                    $pdf->AddPage();
+                    $tplIdx = $pdf->importPage($i);
+                    // dump($tplIdx);
+                    $pdf->useTemplate($tplIdx);
+
+                    $pdf->Image(public_path('images/faster.png'), 10, 10, -300);
+                }
+
+                $pdf->Output('F', $destPath);
+
+                $content = [
+                    'data' => 'data:application/pdf;base64,' . base64_encode(file_get_contents($destPath)),
+                    'file_name' => $request->content['file_name'],
+                ];
+                Storage::delete([$fileName, $destName]);
+                if ($convertedName != null) {
+                    Storage::delete($convertedPath);
+                }
+                break;
+        }
+
+        if (false == ChatModel::createChatMessage([
+                'dispute_id' => $disputeId,
+                'user_id' => Auth::user()->id,
+                'type' => $request->type,
+                'content' => $content,
+                'recipient_id' => 0,
+                'recipient_read_at' => null,
+                'created_at' => now()->toDateTimeString(),
+                'status' => ChatModel::ACTIVE,
+            ])) {
+            return response()->api(false, 'Error while storing message', null);
+        }
+
+        broadcast(new DisputeChatMessage($disputeId, $content, Auth::user()->id, $request->type))->toOthers();
+
+        return response()->api(true, 'Successfully stored message and sent response', null);
+    }
+
+    public function createFeedback($disputeId, Request $request)
+    {
+        $userId = Auth::user()->id;
+        $disputeId = $disputeId;
+
+        $dispute = Dispute::findDisputeByDisputeIdByUserId($disputeId, $userId);
+
+        if (true == is_null($dispute)) {
+            return response()->api(false, 'Dispute not found', null);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'feedback' => 'required|integer',
+            'description' => 'required'
+        ]);
+        if ($validator->fails()) {
+            return response()->api(false, implode(', ', $validator->errors()->all()), null);
+        }
+
+        $feedback = DisputeFeedback::createFeedback([
+            'feedback' => $request->feedback,
+            'dispute_id' => $disputeId,
+            'user_id' => $userId,
+            'description' => $request->description,
+        ]);
+
+        if (false == $feedback) {
+            return response()->api(false, 'Feedback not captured, some internal error occurred', null);
+        }
+
+        return response()->api(true, 'Feedback captured successfully', null);
+    }
+}
+

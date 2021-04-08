@@ -1,0 +1,216 @@
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use App\Mail\EmailSupportReply;
+use App\Models\Notification;
+use App\Models\User;
+use App\Notifications\AdminTicketReply;
+use Illuminate\Http\Request;
+use App\Http\Controllers\Controller;
+use App\Models\TicketReason;
+use App\Models\TicketQuery;
+use App\Models\TicketReply;
+use Illuminate\Validation\Rule;
+use Validator;
+use Illuminate\Support\Facades\Mail;
+
+class TicketController extends Controller
+{
+    protected function hashReplacer($string)
+    {
+        preg_match('/#(.*?)#/', $string, $match);
+
+        if (false == $match) {
+            return $string;
+        } else {
+            $hashValue = $match[0];
+            $cleanValue = $match[1];
+            $decoded = $this->decodeHash($cleanValue);
+            if (is_string($decoded)) {
+                $convertedString = str_replace($hashValue, '<strong>[' . $cleanValue . ': ' . $decoded . ']</strong>',
+                    $string);
+            } else {
+
+                $ticketId = $decoded;
+
+                $convertedString = str_replace($hashValue,
+                    '<a href="' . route('get.ticket.individual',
+                        $ticketId) . '" target="_blank">' . $cleanValue . '</a>',
+                    $string);
+            }
+            return $this->hashReplacer($convertedString);
+        }
+    }
+
+    public function viewTicketreasons()
+    {
+        return view('admin.ticket.view_reasons')->with(['reasons' => TicketReason::get()]);
+    }
+
+    public function createTicketReason(Request $request)
+    {
+        $validator = request()->validate([
+            'type' => 'required',
+            'reason' => 'required'
+        ]);
+        $type = $request->type;
+        $reason = $request->reason;
+
+        $reason = TicketReason::createReason([
+            'for_logged_in' => $type,
+            'reason' => $reason
+        ]);
+
+        return redirect()->route('get.ticket.reasons');
+    }
+
+    public function viewEditTicketReason($reasonId)
+    {
+        $reason = TicketReason::findById($reasonId);
+        if (false == $reason) {
+            abort(404);
+        }
+
+        return view('admin.ticket.edit_reason')->with('reason', $reason);
+    }
+
+    public function updateTicketReason($reasonId, Request $request)
+    {
+        $validator = request()->validate([
+            'type' => 'required',
+            'reason' => 'required'
+        ]);
+
+        $type = $request->type;
+        $reason = $request->reason;
+
+        $reason = TicketReason::updateReason($reasonId, [
+            'for_logged_in' => $type,
+            'reason' => $reason
+        ]);
+
+        return redirect()->route('get.ticket.reasons');
+    }
+
+    public function viewTicketQueries()
+    {
+        $tickets = TicketQuery::getTickets();
+        $count_outside_tickets = $count_logged_in_tickets = 0;
+        $arr_out_ticket = array();
+        $arr_logged_ticket = array();
+
+        foreach ($tickets as $ticket) {
+            if ($ticket->for_logged_in == 1) {
+                $count_logged_in_tickets++;
+                $arr_logged_ticket[] = $ticket;
+            } else {
+                $count_outside_tickets++;
+                $arr_out_ticket[] = $ticket;
+            }
+
+            if (false == $ticket->total_unread) {
+                $ticket->total_unread = 0;
+            }
+
+            if (false == $ticket->total_outside_unread) {
+                $ticket->total_outside_unread = 0;
+            }
+        }
+
+        return view('admin.ticket.view_queries')->with([
+            'logged_count' => $count_logged_in_tickets,
+            'logged_tickets' => $arr_logged_ticket,
+            'outside_count' => $count_outside_tickets,
+            'outside_tickets' => $arr_out_ticket
+        ]);
+    }
+
+    public function viewIndividualTicket($ticketId, Request $request)
+    {
+        $ticket = TicketQuery::findTicketByIdSlim($ticketId);
+        if (false == $ticket) {
+            abort(404);
+        }
+
+        $replies = TicketReply::getRepliesByTicketQueryId($ticketId);
+        // $cleanReplies = [];
+        foreach ($replies as $reply) {
+            $reply->reply = $this->hashReplacer($reply->reply);
+        }
+
+        //dd($replies);
+        $readAt = TicketReply::readByCsAt($ticketId);
+
+
+        return view('admin.ticket.view_individual')->with([
+            'id' => $ticketId,
+            'ticket' => $ticket,
+            'replies' => $replies
+        ]);
+    }
+
+    public function replyTicket($ticketId, Request $request)
+    {
+        $valid = TicketQuery::findTicketById($ticketId);
+        if (false == $valid) {
+            abort(404);
+        }
+        $validator = request()->validate([
+            'reply' => 'required',
+            'status' => [
+                'sometimes',
+                'required',
+                Rule::in([TicketQuery::CLOSED, TicketQuery::OPEN]),
+            ],
+        ]);
+
+        $reply = TicketReply::createReply([
+            'ticket_query_id' => $ticketId,
+            'reply' => $request->reply,
+            'user_id' => TicketReply::CS,
+            'read_at' => null
+        ]);
+
+        $ticketNotificationStatus=TicketQuery::NOTIFICATION_OPEN;
+        if($request->has('status')){
+            if($request->status == TicketQuery::OPEN) {
+                $ticketNotificationStatus = TicketQuery::NOTIFICATION_OPEN;
+            } else{
+                $ticketNotificationStatus = TicketQuery::NOTIFICATION_CLOSED;
+            }
+            $valid->ticket_status = $request->status;
+            $valid->save();
+        }
+
+        $valid->touch();
+
+        if (is_null($valid->user_id)) {
+            $email = $valid->email_id;
+        } elseif (is_null($valid->email_id)) {
+            $userId = $valid->user_id;
+            $email = User::findById($userId)->email;
+
+            /*
+             * Make previous notifications of same ticket status as 0
+             */
+            Notification::deactivateTicketNotifications($ticketId);
+
+            $notifiable = User::find($userId);
+            $notifiable->notify(new AdminTicketReply($ticketId, $userId, 'Admin has replied to your ticket', $ticketNotificationStatus));
+        }
+
+        $message = $request->reply;
+        $message .= "\n\n To view the previous replies,Kindly click the button below. \n\n";
+
+
+        //send email to user from here
+        Mail::to($email)->queue(new EmailSupportReply(
+            $message,
+            $ticketId
+        ));
+
+        return redirect()->route('get.ticket.queries');
+    }
+}
+

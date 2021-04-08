@@ -1,0 +1,55 @@
+<?php
+
+namespace App\Mail;
+
+use Illuminate\Bus\Queueable;
+use Illuminate\Mail\Mailable;
+use Illuminate\Queue\SerializesModels;
+use Illuminate\Contracts\Queue\ShouldQueue;
+
+class EmailTradeChatMessages extends Mailable
+{
+    use Queueable, SerializesModels;
+
+    protected $filename;
+    protected $tradeId;
+    protected $tradeStartTime;
+    protected $tradeCloseTime;
+    protected $message;
+
+    /**
+     * Create a new message instance.
+     *
+     * @return void
+     */
+    public function __construct($filename, $tradeId, $tradeStartTime, $tradeCloseTime, $message)
+    {
+        $this->filename = $filename;
+        $this->tradeId = $tradeId;
+        $this->tradeStartTime = $tradeStartTime;
+        $this->tradeCloseTime = $tradeCloseTime;
+        $this->message = $message;
+    }
+
+    /**
+     * Build the message.
+     *
+     * @return $this
+     */
+    public function build()
+    {
+        $email= $this->markdown('emails.trade_chat_transcript')->with([
+            'tradeId' => $this->tradeId,
+            'filename' => $this->filename,
+            'tradeStartTime' => $this->tradeStartTime,
+            'tradeCloseTime' => $this->tradeCloseTime,
+        ])
+        ->attachData($this->message,$this->filename,[
+            'mime'=>'text/plain'
+            ]);
+
+
+        return $email;
+    }
+}
+

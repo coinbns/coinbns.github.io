@@ -1,0 +1,718 @@
+<?php
+
+use App\Models\UserCoin;
+use App\Models\Admin;
+use App\Trades\HD;
+use Illuminate\Http\Request;
+
+/*
+|--------------------------------------------------------------------------
+| Web Routes
+|--------------------------------------------------------------------------
+|
+| Here is where you can register web routes for your application. These
+| routes are loaded by the RouteServiceProvider within a group which
+| contains the "web" middleware group. Now create something great!
+|
+ */
+Route::get('/mailable', function () {
+
+    return new App\Mail\VerifyRegistration('banvari lal', 'register/112312312', 2);
+});
+
+Route::prefix('admin')->group(function () {
+
+    Route::group(['middleware' => ['ipFilter']], function () {
+        Route::get('/', 'Admin\AdminController@index')->name('admin_dashboard')->middleware('auth.admin');
+        Route::get('dispute', 'Admin\AdminController@viewDisputes')->name('admin.dispute');
+        Route::get('login', 'Admin\AdminController@login')->name('admin.login');
+        Route::post('login/validate', 'Admin\AdminController@validateLogin')->name('admin.validate.login');
+
+
+        Route::group(['middleware' => ['auth.admin']], function () {
+
+            Route::group(['middleware' => ['permission:can-view-public-addresses']], function () {
+                Route::get('address/public',
+                    'Admin\AddressController@viewPublicAddresses')->name('admin.address.public');
+                Route::post('address/public/add',
+                    'Admin\AddressController@addPublicAddresses')->name('admin.address.public.add')->middleware('permission:can-create-public-addresses');
+            });
+
+            Route::group(['middleware' => ['permission:can-view-storage-addresses']], function () {
+                Route::get('address/storage',
+                    'Admin\AddressController@viewStorageAddresses')->name('admin.address.storage');
+                Route::post('address/storage/add',
+                    'Admin\AddressController@addStorageAddresses')->name('admin.address.storage.add')->middleware('permission:can-create-storage-addresses');
+            });
+
+            Route::group(['middleware' => ['permission:can-view-fund-addresses']], function () {
+                Route::get('address/fund', 'Admin\AddressController@viewFundAddresses')->name('admin.address.fund');
+                Route::post('address/fund/add',
+                    'Admin\AddressController@addFundAddresses')->name('admin.address.fund.add');
+            });
+
+            /*Route::get('dashboard','Admin\AdminController@dashboard')->name('admin_dashboard');*/
+            Route::get('dashboard', ['as' => 'cs.dashboard', 'uses' => 'Admin\AdminController@viewCsDashboard']);
+
+            Route::get('logout', 'Admin\AdminController@logout')->name('admin.logout');
+
+            /*Dispute Routes*/
+
+            Route::group(['middleware' => ['permission:can-manage-disputes']], function () {
+
+                Route::get('disputes', ['as' => 'cs.dispute', 'uses' => 'Admin\DisputeController@viewDispute']);
+                Route::get('disputes/{disputeId}',
+                    ['as' => 'cs.individual_dispute', 'uses' => 'Admin\DisputeController@individualDispute']);
+                Route::post('dispute/chat_send_message',
+                    ['as' => 'cs.chat_send_message', 'uses' => 'Admin\DisputeController@disputeChatMessage']);
+                Route::post('dispute/guilty',
+                    ['as' => 'admin.dispute.guilty', 'uses' => 'Admin\DisputeController@concludeGuilty']);
+
+                //cs.dispute.chat
+                Route::get('disputes/chat/{disputeId}',
+                    ['as' => 'cs.dispute.chat', 'uses' => 'Admin\DisputeController@viewDisputeChat']);
+                Route::get('disputes/chat/screen/{disputeId}/{userId}',
+                    ['as' => 'cs.dispute.chat.screen', 'uses' => 'Admin\DisputeController@viewUserScreen']);
+                Route::post('disputes/chat/screen/setUrl',
+                    ['as' => 'cs.dispute.chat.screen.seturl', 'uses' => 'Admin\DisputeController@setRtcUrl']);
+                Route::get('dispute/share_buyer_screen/{disputeId}', [
+                    'as' => 'cs.share_buyer_screen',
+                    'uses' => 'Admin\DisputeController@viewBuyerScreen'
+                ])->middleware('iFrame');
+                Route::get('dispute/share_seller_screen/{disputeId}', [
+                    'as' => 'cs.share_seller_screen',
+                    'uses' => 'Admin\DisputeController@viewSellerScreen'
+                ])->middleware('iFrame');
+                Route::post('dispute/chat_send_message_seller',
+                    ['as' => 'cs.chat_send_message_seller', 'uses' => 'Admin\DisputeController@chatSendMessageSeller']);
+                Route::get('dispute/counter}', [
+                    'as' => 'cs.dispute.counter',
+                    'uses' => 'Admin\DisputeController@getDisputeCounts'
+                ]);
+
+            });
+
+            Route::get('ticket/reasons', [
+                'as' => 'get.ticket.reasons',
+                'uses' => 'Admin\TicketController@viewTicketreasons'
+            ])->middleware('permission:can-view-ticket-reasons');
+
+            Route::post('ticket/create-reason', [
+                'as' => 'create.ticket.reason',
+                'uses' => 'Admin\TicketController@createTicketReason'
+            ])->middleware('permission:can-create-ticket-reasons');
+
+            Route::get('ticket/reasons/edit/{reasonId}', [
+                'as' => 'edit.ticket.reasons',
+                'uses' => 'Admin\TicketController@viewEditTicketReason'
+            ])->middleware('permission:can-edit-dispute-reason');
+
+            Route::post('ticket/reasons/update/{reasonId}', [
+                'as' => 'update.ticket.reason',
+                'uses' => 'Admin\TicketController@updateTicketReason'
+            ])->middleware('permission:can-edit-ticket-reasons');
+
+            Route::group(['middleware' => ['permission:can-manage-tickets']], function () {
+                Route::get('ticket/queries', [
+                    'as' => 'get.ticket.queries',
+                    'uses' => 'Admin\TicketController@viewTicketQueries'
+                ]);
+
+                Route::get('ticket/queries/{ticketId}', [
+                    'as' => 'get.ticket.individual',
+                    'uses' => 'Admin\TicketController@viewIndividualTicket'
+                ])->where('ticketId', '[0-9]+');
+
+                Route::post('ticket/reply/{ticketId}', [
+                    'as' => 'post.ticket.reply',
+                    'uses' => 'Admin\TicketController@replyTicket'
+                ])->where('ticketId', '[0-9]+');
+            });
+
+            Route::group(['middleware' => ['permission:can-convert-coin-to-currency']], function () {
+                Route::get('convert/coin-to-currency', [
+                    'as' => 'cs.convert.coin_to_currency',
+                    'uses' => 'Admin\ConvertController@viewConvertCoinToCurrency'
+                ]);
+
+                Route::post('convert/coin-to-currency/post', [
+                    'as' => 'cs.post.coin_to_currency',
+                    'uses' => 'Admin\ConvertController@convertCoinToCurrency'
+                ]);
+            });
+
+            Route::group(['middleware' => ['permission:can-convert-currency-to-coin']], function () {
+                Route::get('convert/currency-to-coin', [
+                    'as' => 'cs.convert.currency_to_coin',
+                    'uses' => 'Admin\ConvertController@viewConvertCurrencyToCoin'
+                ]);
+
+                Route::post('convert/currency-to-coin/post', [
+                    'as' => 'cs.post.currency_to_coin',
+                    'uses' => 'Admin\ConvertController@convertCurrencyToCoin'
+                ]);
+
+            });
+
+            Route::group(['middleware' => ['permission:can-convert-coin-to-coin']], function () {
+                Route::get('convert/coin-to-coin', [
+                    'as' => 'cs.convert.coin_to_coin',
+                    'uses' => 'Admin\ConvertController@viewConvertCoinToCoin'
+                ]);
+
+                Route::post('convert/coin-to-coin/post', [
+                    'as' => 'cs.post.coin_to_coin',
+                    'uses' => 'Admin\ConvertController@convertCoinToCoin'
+                ]);
+            });
+
+            Route::group(['middleware' => ['permission:can-convert-currency-to-currency']], function () {
+                Route::get('convert/currency-to-currency', [
+                    'as' => 'cs.convert.currency_to_currency',
+                    'uses' => 'Admin\ConvertController@viewConvertCurrencyToCurrency'
+                ]);
+
+                Route::post('convert/currency-to-currency/post', [
+                    'as' => 'cs.post.currency_to_currency',
+                    'uses' => 'Admin\ConvertController@convertCurrencyToCurrency'
+                ]);
+            });
+
+            /*logs routes*/
+
+            Route::get('logs/laravel', [
+                'as' => 'cs.logs.laravel',
+                'uses' => '\Rap2hpoutre\LaravelLogViewer\LogViewerController@index'
+            ])->middleware('permission:can-view-laravel-logs');
+
+            Route::group(['middleware' => ['permission:can-view-trade-logs']], function () {
+                Route::get('logs/trades', ['as' => 'cs.logs.trades', 'uses' => 'Admin\LogController@viewTradeLogs']);
+                Route::post('logs/trades/trade_id',
+                    ['as' => 'cs.logs.tradeById.search', 'uses' => 'Admin\LogController@searchTradesLogsById']);
+                Route::post('logs/trades/user_id',
+                    ['as' => 'cs.logs.tradeByUserId.search', 'uses' => 'Admin\LogController@searchTradesLogsByUserId']);
+            });
+
+            Route::group(['middleware' => ['permission:can-view-transaction-logs']], function () {
+                Route::get('logs/transactions',
+                    ['as' => 'cs.logs.transactions', 'uses' => 'Admin\LogController@viewTransactionLogs']);
+                Route::post('logs/transactions/search',
+                    ['as' => 'cs.logs.transactions.search', 'uses' => 'Admin\LogController@searchTransactionById']);
+            });
+
+            Route::group(['middleware' => ['permission:can-view-user-access-logs']], function () {
+                Route::get('logs/user_access',
+                    ['as' => 'cs.logs.user_access', 'uses' => 'Admin\LogController@viewUserAccessLogs']);
+                Route::post('logs/user_access/search',
+                    ['as' => 'cs.logs.user_access.search', 'uses' => 'Admin\LogController@searchUserAccessByUserId']);
+            });
+
+            Route::group(['middleware' => ['permission:can-view-subscribers-logs']], function () {
+                Route::get('logs/subscribers/{date?}',
+                    ['as' => 'cs.logs.subscribers', 'uses' => 'Admin\LogController@viewSubscribersLogs'])->where([
+                    'date' => '[0-9]{4}[-](0[1-9]|1[0-2])[-](0[1-9]|[1-2][0-9]|3[0-1])'
+                ]);
+                Route::post('logs/subscribers/individual',
+                    [
+                        'as' => 'cs.logs.subscribers.individual',
+                        'uses' => 'Admin\LogController@subscribersLogsIndividual'
+                    ]);
+                Route::post('logs/subscribers/individual/data',
+                    ['as' => 'cs.logs.subscribers.individual.data', 'uses' => 'Admin\LogController@individualData']);
+                Route::post('logs/subscribers/filter',
+                    ['as' => 'cs.logs.subscribers.filter', 'uses' => 'Admin\LogController@filterSubscribersLogs']);
+            });
+
+            Route::group(['middleware' => ['permission:can-view-cc-logs']], function () {
+                Route::get('logs/cron-logs/cc/{date?}',
+                    ['as' => 'cs.logs.cron.cc', 'uses' => 'Admin\LogController@viewCronsLogs'])->where([
+                    'date' => '[0-9]{4}[-](0[1-9]|1[0-2])[-](0[1-9]|[1-2][0-9]|3[0-1])'
+                ]);
+                Route::post('logs/cron-logs/cc/individual',
+                    ['as' => 'cs.logs.crons.individual', 'uses' => 'Admin\LogController@cronLogsIndividual']);
+                Route::post('logs/cc/filter',
+                    ['as' => 'cs.logs.cc.filter', 'uses' => 'Admin\LogController@filterCcLogs']);
+            });
+
+            Route::group(['middleware' => ['permission:can-view-sc-logs']], function () {
+                Route::get('logs/cron-logs/sc/{date?}',
+                    ['as' => 'cs.logs.cron.sc', 'uses' => 'Admin\LogController@viewCronScLogs'])->where([
+                    'date' => '[0-9]{4}[-](0[1-9]|1[0-2])[-](0[1-9]|[1-2][0-9]|3[0-1])'
+                ]);
+                Route::post('logs/cron-logs/sc/individual',
+                    ['as' => 'cs.logs.cronsSc.individual', 'uses' => 'Admin\LogController@cronLogsIndividualSc']);
+                Route::post('logs/sc/filter',
+                    ['as' => 'cs.logs.sc.filter', 'uses' => 'Admin\LogController@filterScLogs']);
+            });
+
+            Route::group(['middleware' => ['permission:can-view-tc-logs']], function () {
+                Route::get('logs/cron-logs/tc/{date?}',
+                    ['as' => 'cs.logs.cron.tc', 'uses' => 'Admin\LogController@viewCronTcLogs'])->where([
+                    'date' => '[0-9]{4}[-](0[1-9]|1[0-2])[-](0[1-9]|[1-2][0-9]|3[0-1])'
+                ]);
+                Route::post('logs/cron-logs/tc/individual',
+                    ['as' => 'cs.logs.cronsTc.individual', 'uses' => 'Admin\LogController@cronLogsIndividualTc']);
+                Route::post('logs/tc/filter',
+                    ['as' => 'cs.logs.tc.filter', 'uses' => 'Admin\LogController@filterTcLogs']);
+            });
+
+            Route::group(['middleware' => ['permission:can-download-logs']], function () {
+                Route::get('logs/download',
+                    ['as' => 'cs.logs.download', 'uses' => 'Admin\LogController@viewDownloadPage']);
+
+                Route::post('logs/download-reason',
+                    ['as' => 'cs.download.reason', 'uses' => 'Admin\LogController@submitDownloadReason']);
+
+                Route::get('logs/download/zip/{start}/{end}', [
+                    'as' => 'cs.logs.download.zip.get',
+                    'uses' => 'Admin\LogController@downloadZipGet'
+                ])->where([
+                    'start' => '(0[1-9]|[12][0-9]|3[01])[-](0[1-9]|1[012])[-]\d{4}',
+                    'end' => '(0[1-9]|[12][0-9]|3[01])[-](0[1-9]|1[012])[-]\d{4}'
+                ]);
+
+                Route::get('logs/download-history', [
+                    'as' => 'log.download.history',
+                    'uses' => 'Admin\LogController@downloadHistory'
+                ]);
+            });
+
+            Route::post('clear-live-error-logs',
+                ['as' => 'clear.error', 'uses' => 'Admin\LiveErrorsAndExceptionsController@clearLiveErrorLogs'])
+                ->middleware('permission:can-clear-live-error-logs');
+
+            /*FAQ routes*/
+
+            Route::get('faq/topics', [
+                'as' => 'cs.faq.topics',
+                'uses' => 'Admin\FAQController@viewFaqTopics'
+            ])->middleware('permission:can-view-faq-topics');
+
+            Route::post('faq/topics/create', [
+                'as' => 'cs.faq.topics.create',
+                'uses' => 'Admin\FAQController@createFaqTopics'
+            ])->middleware('permission:can-create-faq-topics');
+
+
+            Route::group(['middleware' => ['permission:can-edit-faq-topics']], function () {
+                Route::get('faq/topics/edit/{topicId}', [
+                    'as' => 'cs.faq.topic.edit',
+                    'uses' => 'Admin\FAQController@viewFaqTopicsEdit'
+                ]);
+
+                Route::post('faq/topics/update/{topicId}', [
+                    'as' => 'cs.faq.topic.update',
+                    'uses' => 'Admin\FAQController@updateFaqTopic'
+                ]);
+            });
+
+
+            Route::get('faqs', [
+                'as' => 'cs.faqs',
+                'uses' => 'Admin\FAQController@viewFaqs'
+            ])->middleware('permission:can-view-faq');
+
+            Route::post('faqs', [
+                'as' => 'cs.faq.create',
+                'uses' => 'Admin\FAQController@createFaq'
+            ])->middleware('permission:can-create-faq');
+
+
+            Route::group(['middleware' => ['permission:can-edit-faq-topics']], function () {
+                Route::get('faqs/edit/{faqId}', [
+                    'as' => 'cs.faq.edit',
+                    'uses' => 'Admin\FAQController@viewEditFaq'
+                ]);
+
+                Route::post('faq/update/{faqId}', [
+                    'as' => 'cs.faq.update',
+                    'uses' => 'Admin\FAQController@updateFaq'
+                ]);
+            });
+
+            /*Forum routes*/
+
+            Route::get('forum/categories', [
+                'as' => 'cs.forum.categories',
+                'uses' => 'Admin\ForumController@viewCategories'
+            ])->middleware('permission:can-view-forum-categories');
+            Route::post('forum/category/save', [
+                'as' => 'cs.forum.category.save',
+                'uses' => 'Admin\ForumController@saveCategory'
+            ])->middleware('permission:can-create-forum-category');
+            Route::get('forum/tags', [
+                'as' => 'cs.forum.tags',
+                'uses' => 'Admin\ForumController@viewTags'
+            ])->middleware('permission:can-view-forum-tags');
+            Route::post('forum/tags/save', [
+                'as' => 'cs.forum.tag.save',
+                'uses' => 'Admin\ForumController@saveTag'
+            ])->middleware('permission:can-create-forum-tags');
+            Route::get('forum/posts', [
+                'as' => 'cs.forum.posts',
+                'uses' => 'Admin\ForumController@viewPosts'
+            ])->middleware('permission:can-view-forum-posts');
+            Route::post('forum/post/save', [
+                'as' => 'cs.forum.post.save',
+                'uses' => 'Admin\ForumController@savePost'
+            ])->middleware('permission:can-create-forum-post');
+            Route::get('forum/posts/{postId}', [
+                'as' => 'cs.forum.post',
+                'uses' => 'Admin\ForumController@viewPost'
+            ])->middleware('permission:can-view-forum-posts');
+            Route::post('forum/post/update-status', [
+                'as' => 'cs.forum.post.updateStatus',
+                'uses' => 'Admin\ForumController@updateStatus'
+            ])->middleware('permission:can-edit-forum-post	');
+            Route::post('forum/category/update-status', [
+                'as' => 'cs.forum.category.updateStatus',
+                'uses' => 'Admin\ForumController@updateCategoryStatus'
+            ])->middleware('permission:can-edit-forum-category');
+
+            /*Help routes*/
+            Route::get('help/topics', [
+                'as' => 'cs.help.topics',
+                'uses' => 'Admin\HelpController@viewMainTopics'
+            ])->middleware('permission:can-view-help-main-topics');
+            Route::post('help/topic/save', [
+                'as' => 'cs.help.topic.save',
+                'uses' => 'Admin\HelpController@saveTopic'
+            ])->middleware('permission:can-create-help-main-topic');
+            Route::group(['middleware' => ['permission:can-edit-help-main-topic']], function () {
+                Route::get('help/topics/edit/{topicId}',
+                    ['as' => 'cs.help.topic.edit', 'uses' => 'Admin\HelpController@viewEditTopic']);
+                Route::post('help/topic/update',
+                    ['as' => 'cs.help.topic.update', 'uses' => 'Admin\HelpController@updateTopic']);
+                Route::post('help/topic/update-status',
+                    ['as' => 'cs.help.topic.updateStatus', 'uses' => 'Admin\HelpController@updateTopicStatus']);
+            });
+
+            Route::get('help/subtopics', [
+                'as' => 'cs.help.subtopics',
+                'uses' => 'Admin\HelpController@viewSubTopics'
+            ])->middleware('permission:can-view-help-sub-topics');
+            Route::post('help/subtopic/save', [
+                'as' => 'cs.help.subtopic.save',
+                'uses' => 'Admin\HelpController@saveSubTopic'
+            ])->middleware('permission:can-create-help-sub-topic');
+            Route::get('help/subtopics/{subTopicId}', [
+                'as' => 'cs.help.subtopic',
+                'uses' => 'Admin\HelpController@viewSubTopic'
+            ])->middleware('permission:can-view-help-sub-topics');
+
+            Route::group(['middleware' => ['permission:can-edit-help-main-sub-topic']], function () {
+                Route::get('help/subtopics/edit/{subTopicId}',
+                    ['as' => 'cs.help.subtopic.edit', 'uses' => 'Admin\HelpController@viewEditSubTopic']);
+                Route::post('help/subtopic/update',
+                    ['as' => 'cs.help.subtopic.update', 'uses' => 'Admin\HelpController@updateSubTopic']);
+                Route::post('help/subtopic/update-status',
+                    ['as' => 'cs.help.subtopic.updateStatus', 'uses' => 'Admin\HelpController@updateSubTopicStatus']);
+            });
+
+            Route::post('notification/dispute',
+                ['as' => 'cs.notification.dispute', 'uses' => 'Admin\DisputeController@notifyUser']);
+            Route::post('notifications', ['as' => 'cs.notifications', 'uses' => 'Admin\NotificationController@fetch']);
+
+            Route::group(['middleware' => ['permission:can-view-reported-users']], function () {
+                Route::get('reported-users',
+                    ['as' => 'cs.reported.users', 'uses' => 'Admin\ReportController@viewReportedUsers']);
+            });
+
+            Route::group(['middleware' => ['permission:can-suspend-reported-user']], function () {
+                Route::get('reported-users/suspend-user/{userId}',
+                    ['as' => 'cs.reported.users.suspend', 'uses' => 'Admin\ReportController@suspendUser']);
+            });
+
+
+            Route::group(['middleware' => 'permission:can-view-reported-advertisements'], function () {
+                Route::get('reported-advertisements', [
+                    'as' => 'cs.reported.ads',
+                    'uses' => 'Admin\ReportController@viewReportedAdvertisements'
+                ]);
+
+                Route::get('reported-advertisements/{adId}', [
+                    'as' => 'view.reported.ad',
+                    'uses' => 'Admin\ReportController@viewReportedAdDetails'
+                ]);
+
+                Route::post('reported-ads-message', [
+                    'as' => 'reported.ad.message',
+                    'uses' => 'Admin\ReportController@viewAdMessage'
+                ]);
+            });
+
+            Route::get('reported-advertisements/report/{adId}', [
+                'as' => 'cs.reported.ads.report',
+                'uses' => 'Admin\ReportController@reportAd'
+            ])->middleware('permission:can-report-advertisement');
+
+            Route::get('users-logged-in', [
+                'as' => 'cs.users.logged',
+                'uses' => 'Admin\UsersController@viewLoggedInUsers'
+            ])->middleware('permission:can-view-users-logged-in');
+
+            Route::group(['middleware' => ['permission:can-manage-unregistered-users']], function () {
+                Route::get('unregistered-users', [
+                    'as' => 'cs.unregistered.users',
+                    'uses' => 'Admin\UsersController@viewUnregisteredUsers'
+                ]);
+
+                Route::get('unregistered-users/reset/{id}', [
+                    'as' => 'cs.unregistered.reset',
+                    'uses' => 'Admin\UsersController@resetUnregisteredUsers'
+                ]);
+
+                Route::get('unregistered-users/delete/{id}', [
+                    'as' => 'cs.unregistered.delete',
+                    'uses' => 'Admin\UsersController@deleteUnregisteredUsers'
+                ])->where('id', '[0-9]+');;
+            });
+
+            Route::get('user/logout/{userId}', [
+                'as' => 'cs.user.logout',
+                'uses' => 'Admin\UsersController@forceLogout'
+            ])->middleware('permission:can-force-logout-user');
+        });
+
+        Route::group(['middleware' => ['auth.admin']], function () {
+            Route::get('coins',
+                'Admin\CoinController@viewCoins')->name('admin.coins')->middleware('permission:can-view-coins');
+
+            Route::group(['middleware' => ['permission:can-manage-coins']], function () {
+                Route::get('coins/{coinId}', 'Admin\CoinController@viewCoin')->name('admin.coin');
+                Route::post('coin/status', 'Admin\CoinController@updateCoinStatus')->name('admin.coin.updateStatus');
+                Route::post('coin/upsert', 'Admin\CoinController@upsertCoin')->name('admin.coin.upsert');
+            });
+
+            Route::get('key',
+                'Admin\KeyController@viewTrePublicKey')->name('admin.tre.key')->middleware('permission:can-view-public-key');
+            Route::post('key',
+                'Admin\KeyController@updatePyPublicKey')->name('admin.tre.key.update')->middleware('permission:can-view-public-key');
+
+            Route::get('roles',
+                'Admin\RoleController@index')->name('admin.roles')->middleware('permission:can-view-roles');
+            Route::post('role/create',
+                'Admin\RoleController@create')->name('admin.role.create')->middleware('permission:can-create-role');
+
+            Route::group(['middleware' => ['role'], 'roles' => [Admin::SUPER]], function () {
+                Route::get('role/{roleId}/special-permissions',
+                    'Admin\RoleController@specialPermission')->name('admin.role.specialPermissions');
+                Route::post('role/update/SpecialPermissions',
+                    'Admin\RoleController@updateSpecialPermissions')->name('admin.role.updateSpecialPermissions');
+                Route::get('deposit', 'Admin\DepositController@viewDepositePage')->name('admin.deposit');
+                Route::post('deposit/search', 'Admin\DepositController@search')->name('admin.deposit.user.search');
+                Route::get('deposit/{userId}/{coin}',
+                    'Admin\DepositController@redirectAfterSuccessfulSearch')->name('admin.deposit.redirect');
+                Route::post('deposit/{userId}/{coin}/{publicAddress}',
+                    'Admin\DepositController@deposit')->name('admin.deposit.save');
+                Route::get('allowed-ip',
+                    'Admin\IpController@viewAllowedIPs')->name('allowed.ip');
+                Route::post('allowed-ip/save',
+                    'Admin\IpController@saveAllowedIPs')->name('allowed.ip.save');
+                Route::get('subscriber/all-data','Admin\NodejsonController@curlAllData')->name('curl.subscribers');
+            });
+
+            Route::group(['middleware' => ['permission:can-edit-role']], function () {
+                Route::get('role/edit/{roleId}', 'Admin\RoleController@edit')->name('admin.role.edit');
+                Route::post('role/update', 'Admin\RoleController@update')->name('admin.role.update');
+            });
+
+            Route::get('permissions',
+                'Admin\PermissionController@index')->name('admin.permissions')->middleware('permission:can-view-permissions');
+            Route::post('permission/create',
+                'Admin\PermissionController@create')->name('admin.permission.create')->middleware('permission:can-create-permission');
+
+            Route::get('support-users', [
+                'as' => 'admin.users',
+                'uses' => 'Admin\UsersController@viewUsers'
+            ])->middleware('permission:can-view-support-users');
+            Route::post('support-users/create', [
+                'as' => 'admin.users.create',
+                'uses' => 'Admin\UsersController@createUsers'
+            ])->middleware('permission:can-create-support-users');
+
+            Route::group(['middleware' => ['permission:can-edit-support-user']], function () {
+                Route::get('support-users/edit/{userId}',
+                    ['as' => 'admin.user.edit', 'uses' => 'Admin\UsersController@editUser']);
+                Route::post('support-users/update',
+                    ['as' => 'admin.users.update', 'uses' => 'Admin\UsersController@updateUser']);
+            });
+
+            Route::group(['middleware' => ['permission:can-reset-mnemonics']], function () {
+                Route::get('users/mnemonics',
+                    ['as' => 'admin.users.mnemonics', 'uses' => 'Admin\UsersController@viewMnemonics']);
+                Route::get('users/mnemonics/delete/{userId}',
+                    ['as' => 'admin.user.mnemonics.delete', 'uses' => 'Admin\UsersController@deleteMnemonics']);
+            });
+
+            Route::post('available/username',
+                ['as' => 'admin.available.username', 'uses' => 'Admin\UsersController@findAvailableUsername']);
+            Route::post('check/email', ['as' => 'admin.check.email', 'uses' => 'Admin\UsersController@checkUserEmail']);
+
+            Route::get('currencies', [
+                'as' => 'admin.currencies',
+                'uses' => 'Admin\CurrencyController@viewCurrencies'
+            ])->middleware('permission:can-view-currencies');
+            Route::group(['middleware' => ['permission:can-create-currency']], function () {
+                Route::get('currency/add',
+                    ['as' => 'admin.currency.add', 'uses' => 'Admin\CurrencyController@viewAddCurrency']);
+                Route::post('currency/add',
+                    ['as' => 'admin.currency.add', 'uses' => 'Admin\CurrencyController@addCurrency']);
+            });
+            Route::group(['middleware' => ['permission:can-edit-currency']], function () {
+                Route::get('currency/edit/{currencyId}',
+                    ['as' => 'admin.currency.edit', 'uses' => 'Admin\CurrencyController@viewEditCurrency']);
+                Route::post('currency/update',
+                    ['as' => 'admin.currency.update', 'uses' => 'Admin\CurrencyController@updateCurrency']);
+                Route::post('currency/update/status',
+                    ['as' => 'admin.currency.update.status', 'uses' => 'Admin\CurrencyController@updateStatus']);
+            });
+
+            Route::get('countries', [
+                'as' => 'admin.countries',
+                'uses' => 'Admin\CountryController@viewCountries'
+            ])->middleware('permission:can-view-countries');
+            Route::group(['middleware' => ['permission:can-create-country']], function () {
+                Route::get('country/add',
+                    ['as' => 'admin.country.add', 'uses' => 'Admin\CountryController@viewAddCountry']);
+                Route::post('country/add',
+                    ['as' => 'admin.country.add', 'uses' => 'Admin\CountryController@addCountry']);
+            });
+            Route::group(['middleware' => ['permission:can-edit-country']], function () {
+                Route::get('country/edit/{countryId}',
+                    ['as' => 'admin.country.edit', 'uses' => 'Admin\CountryController@viewEditCountry']);
+                Route::post('country/update',
+                    ['as' => 'admin.country.update', 'uses' => 'Admin\CountryController@updateCountry']);
+                Route::post('country/update/status',
+                    ['as' => 'admin.country.update.status', 'uses' => 'Admin\CountryController@updateStatus']);
+            });
+
+            Route::get('payment-methods', [
+                'as' => 'admin.payment.methods',
+                'uses' => 'Admin\PaymentController@viewMethods'
+            ])->middleware('permission:can-view-payment-methods');
+            Route::group(['middleware' => ['permission:can-create-payment-method']], function () {
+                Route::get('payment-methods/add',
+                    ['as' => 'admin.payment.methods.add', 'uses' => 'Admin\PaymentController@viewAddMethods']);
+                Route::post('payment-methods/add',
+                    ['as' => 'admin.payment.methods.add', 'uses' => 'Admin\PaymentController@addMethod']);
+            });
+            Route::group(['middleware' => ['permission:can-edit-payment-method']], function () {
+                Route::get('payment-methods/edit/{methodId}',
+                    ['as' => 'admin.payment.methods.edit', 'uses' => 'Admin\PaymentController@viewEditMethod']);
+                Route::post('payment-methods/update',
+                    ['as' => 'admin.payment.methods.update', 'uses' => 'Admin\PaymentController@updateMethod']);
+                /*Route::get('payment-methods/delete/{methodId}',['as'=>'admin.payment.methods.delete','uses'=>'Admin\PaymentController@deleteMethod']);*/
+            });
+
+
+            Route::get('dispute-reasons', [
+                'as' => 'admin.dispute.reasons',
+                'uses' => 'Admin\DisputeController@viewReasons'
+            ])->middleware('permission:can-view-dispute-reasons');
+            Route::group(['middleware' => ['permission:can-create-dispute-reason']], function () {
+                Route::get('dispute-reasons/add',
+                    ['as' => 'admin.dispute.reasons.add', 'uses' => 'Admin\DisputeController@viewAddReason']);
+                Route::post('dispute-reasons/add',
+                    ['as' => 'admin.dispute.reasons.add', 'uses' => 'Admin\DisputeController@addReason']);
+            });
+            Route::group(['middleware' => ['permission:can-edit-dispute-reason']], function () {
+                Route::get('dispute-reasons/edit/{reasonId}',
+                    ['as' => 'admin.dispute.reasons.edit', 'uses' => 'Admin\DisputeController@viewEditReason']);
+                Route::post('dispute-reasons/update',
+                    ['as' => 'admin.dispute.reasons.update', 'uses' => 'Admin\DisputeController@updateReason']);
+                /*Route::get('dispute-reasons/delete/{reasonId}',['as'=>'admin.dispute.reasons.delete','uses'=>'Admin\DisputeController@deleteReason']);*/
+            });
+            Route::group(['middleware' => ['permission:can-update-tnc']], function () {
+                Route::get('terms-and-conditions', ['as' => 'admin.tnc', 'uses' => 'Admin\TncController@readFromFile']);
+                Route::post('terms-and-conditions/update',
+                    ['as' => 'admin.tnc.update', 'uses' => 'Admin\TncController@update']);
+            });
+
+            Route::get('json/addresses', [
+                'as' => 'admin.subscribers.json',
+                'uses' => 'Admin\NodejsonController@viewAddressesJson'
+            ])->middleware('permission:can-view-subscribers-json');
+            Route::get('json/transactions', [
+                'as' => 'admin.transactions.json',
+                'uses' => 'Admin\NodejsonController@viewTransactionsJson'
+            ])->middleware('permission:can-view-transactions-json');
+            Route::get('json/config', [
+                'as' => 'admin.config.json',
+                'uses' => 'Admin\NodejsonController@viewConfigJson'
+            ])->middleware('permission:can-view-config-json');
+
+            Route::get('json/subscriber-coin-config', [
+                'as' => 'admin.subscriber-coin-config.json',
+                'uses' => 'Admin\NodejsonController@viewSubscriberCoinConfigJson'
+            ])->middleware('permission:can-view-subscriber-coin-config');
+
+
+
+            Route::post('testing/populate-error',
+                ['as' => 'testing.error.populate', 'uses' => 'Admin\LiveErrorsAndExceptionsController@populateError']);
+            Route::get('redirect/laravel-logs/{date}',
+                [
+                    'as' => 'redirect.laravel.logs',
+                    'uses' => 'Admin\LiveErrorsAndExceptionsController@redirectLaravelLog'
+                ]);
+
+            Route::group(['middleware' => ['permission:can-view-analytics']], function () {
+                Route::get('analytics/users-by-browsers',
+                    [
+                        'as' => 'analytics.browsers.users',
+                        'uses' => 'Admin\AnalyticsController@usersByBrowsers'
+                    ]);
+                Route::get('analytics/testing-drill-down',
+                    [
+                        'as' => 'analytics.browsers.drill',
+                        'uses' => 'Admin\AnalyticsController@testingDrillDown'
+                    ]);
+
+                Route::get('analytics/completed-trades',
+                    [
+                        'as' => 'analytics.completed.trades',
+                        'uses' => 'Admin\AnalyticsController@completedTrades'
+                    ]);
+                Route::get('analytics/completed/coin/{coinId}',
+                    [
+                        'as' => 'analytics.completed.coin',
+                        'uses' => 'Admin\AnalyticsController@completedTradesByCoin'
+                    ]);
+
+                Route::get('analytics/trades-summary/',
+                    [
+                        'as' => 'analytics.trades.summary',
+                        'uses' => 'Admin\AnalyticsController@tradesSummary'
+                    ]);
+
+                Route::get('analytics/trades-summary/{coinId}',
+                    [
+                        'as' => 'analytics.trades.summary.coin',
+                        'uses' => 'Admin\AnalyticsController@tradesSummaryByCoin'
+                    ]);
+
+                Route::get('analytics/reported-advertisements',
+                    [
+                        'as' => 'analytics.reported.advertisements',
+                        'uses' => 'Admin\AnalyticsController@reportedAdvertisements'
+                    ]);
+            });
+        });
+
+    });
+
+    Route::get('mock-dispute-guilty/{disputeId}/{userId}/{yesNo}',
+        ['as' => 'mock.dispute.guilty', 'uses' => 'Admin\TestingController@mockGuilty']);
+});
+
+
+Route::get('/login', function () {
+    return view('home.base');
+})->name('login');
+Route::get('/{any}', function () {
+    return view('home.base');
+})->where('any', '.*');
+
+
+

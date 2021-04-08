@@ -1,0 +1,92 @@
+<?php
+
+namespace App\Models;
+
+use DB;
+use App\Models\Model;
+
+class UserCoin extends Model
+{
+    //level
+    const level = [
+        '1' => 'beginner',
+        '2' => 'advance',
+    ];
+
+    /*Create Queries Start*/
+    public static function createUserCoin($data)
+    {
+        $userCoin = new self;
+
+        $userCoin->user_id = $data['user_id'];
+        $userCoin->coin_id = $data['coin_id'];
+        $userCoin->balance = $data['balance'];
+        $userCoin->trade_volume = $data['trade_volume'];
+        $userCoin->max_trade_amount = $data['max_trade_amount'];
+        $userCoin->level = $data['level'];
+        $userCoin->status = $data['status'];
+
+        return $userCoin->save();
+    }
+    /*Create Queries End*/
+
+    /*Find Queries Start*/
+    public static function findUserCoin($coinId, $userId)
+    {
+        return self::active()
+            ->where('user_id', $userId)
+            ->where('coin_id', $coinId)
+            ->first();
+    }
+    /*Find Queries End*/
+
+    /*Get Queries Start*/
+    public static function getUserCoins($userId)
+    {
+        return self::select('coins.symbol', 'coins.color as coin_color', 'user_coins.coin_id', 'user_coins.balance')
+            ->join('coins', 'coins.id', '=', 'user_coins.coin_id')
+            ->where('coins.status', self::ACTIVE)
+            ->where('user_coins.user_id', $userId)
+            ->get();
+    }
+
+    public static function getAllUserCoins()
+    {
+        return self::active()->get();
+    }
+    /*Get Queries End*/
+
+    /*Update Queries Start*/
+    public static function updateBalance($coinId, $userId, $balance)
+    {
+        return self::active()
+            ->where('user_id', $userId)
+            ->where('coin_id', $coinId)
+            ->update([
+                'balance' => $balance,
+            ]);
+    }
+
+    public static function updateBalanceAndVolume($coinId, $userId, $balance, $volume)
+    {
+        return self::active()
+            ->where('user_id', $userId)
+            ->where('coin_id', $coinId)
+            ->update([
+                'trade_volume' => DB::raw("trade_volume + {$volume}"),
+                'balance' => $balance,
+            ]);
+    }
+
+    public static function updateMaxTradeAmountByLevel($coinId, $level, $maxTradeAmount)
+    {
+        return self::active()
+            ->where('level', $level)
+            ->where('coin_id', $coinId)
+            ->update([
+                'max_trade_amount' => $maxTradeAmount,
+            ]);
+    }
+    /*Update Queries End*/
+}
+

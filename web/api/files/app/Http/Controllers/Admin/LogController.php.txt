@@ -1,0 +1,750 @@
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use App\Events\DisputeChatMessage;
+use App\Events\DisputeChatMessageSeller;
+use App\Events\SendNotification;
+use Auth;
+use function GuzzleHttp\Psr7\str;
+use Validator;
+use Illuminate\Http\Request;
+use DB;
+use App\Models;
+use App\Models\Admin;
+use Illuminate\Foundation\Auth\AuthenticatesUsers;
+use App\Models\TradeLog;
+use App\Models\TransactionLog;
+use App\Models\UserAccessLog;
+use App\Models\LogsDownloadedBy;
+use Storage;
+use App\Http\Controllers\Controller;
+use DateTime;
+
+class LogController extends Controller
+{
+
+    public function viewTradeLogs()
+    {
+        /*$logs=TradeLog::displayAll();*/
+        return view('admin.logs.trades_logs');
+    }
+
+    public function searchTradesLogsById(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'tradeId' => 'required|numeric',
+        ]);
+        if ($validator->fails()) {
+            return response()->json(array('success' => false, 'error' => $validator->errors()->all()));
+        }
+
+        $tradeId = $request->tradeId;
+
+        $tradeLogs = TradeLog::getLogsByTradeId($tradeId);
+        if ($tradeLogs->count() > 0) {
+            $returnHTML = view('admin.logs.view_trade_logs_table')->with('tradeLogs', $tradeLogs)->render();
+            return response()->json(array('success' => true, 'html' => $returnHTML));
+        } else {
+            return response()->json(array('success' => false, 'error' => 'NO LOG ENTRY FOUND'));
+        }
+    }
+
+    public function searchTradesLogsByUserId(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'userId' => 'required|numeric',
+        ]);
+        if ($validator->fails()) {
+            return response()->json(array('success' => false, 'error' => $validator->errors()->all()));
+        }
+
+        $userId = $request->userId;
+
+        $tradeLogs = TradeLog::getLogsByUserId($userId);
+        if ($tradeLogs->count() > 0) {
+            $returnHTML = view('admin.logs.view_trade_logs_table')->with('tradeLogs', $tradeLogs)->render();
+            return response()->json(array('success' => true, 'html' => $returnHTML));
+        } else {
+            return response()->json(array('success' => false, 'error' => 'NO LOG ENTRY FOUND'));
+        }
+    }
+
+    public function viewTransactionLogs()
+    {
+        return view('admin.logs.transactions_logs');
+    }
+
+    public function searchTransactionById(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'transactionId' => 'required|numeric',
+        ]);
+        if ($validator->fails()) {
+            return response()->json(array('success' => false, 'error' => $validator->errors()->all()));
+        }
+
+        $transactionId = $request->transactionId;
+
+        $transactions = TransactionLog::getLogByTransactionId($transactionId);
+        if ($transactions->count() > 0) {
+            $returnHTML = view('admin.logs.view_transaction_logs_table')->with('transactions', $transactions)->render();
+            return response()->json(array('success' => true, 'html' => $returnHTML));
+        } else {
+            return response()->json(array('success' => false, 'error' => 'NO TRANSACTION FOUND'));
+        }
+
+    }
+
+    public function viewUserAccessLogs()
+    {
+        return view('admin.logs.user_access_logs');
+    }
+
+    public function searchUserAccessByUserId(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'userId' => 'required|numeric',
+        ]);
+        if ($validator->fails()) {
+            return response()->json(array('success' => false, 'error' => $validator->errors()->all()));
+        }
+
+        $userId = $request->userId;
+
+        $logs = UserAccessLog::getByUserId($userId);
+        if ($logs->count() > 0) {
+            $returnHTML = view('admin.logs.view_user_access_logs_table')->with('logs', $logs)->render();
+            return response()->json(array('success' => true, 'html' => $returnHTML));
+        } else {
+            return response()->json(array('success' => false, 'error' => 'NO LOG ENTRY FOUND'));
+        }
+
+    }
+
+
+    public function viewSubscribersLogs($date = null)
+    {
+        /*
+         * get list of files in path: ROOT/subscriber/logs
+         */
+        $files = Storage::disk('subscriber_logs')->allFiles();
+        foreach ($files as $file) {
+            $ext = explode('.', $file);
+            if (strtolower($ext[1]) == 'json') {
+                $json_files[] = $ext[0];
+            }
+        }
+
+        if (false == isset($json_files)) {
+            return view('admin.logs.subscribers')->with('files', []);
+        }
+
+        usort($json_files, array($this, 'date_sort_latest'));
+
+        //get the latest 10 files
+
+        $count = 0;
+        $latest = [];
+        foreach ($json_files as $json_file) {
+            ++$count;
+            if ($count <= 10) {
+                $latest[] = $json_file;
+            }
+        }
+
+        return view('admin.logs.subscribers')->with('files', $latest);
+    }
+
+    public function filterSubscribersLogs(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'from' => 'required|date_format:d-m-Y',
+            'to' => 'required|date_format:d-m-Y|after:from',
+        ]);
+        if ($validator->fails()) {
+            return response()->json(array('success' => false, 'error' => $validator->errors()->all()));
+        }
+
+        $from = $request->from;
+        $to = $request->to;
+
+        $fromYMD = date('Y-m-d', strtotime($from));
+        $toYMD = date('Y-m-d', strtotime($to));
+
+        $files = Storage::disk('subscriber_logs')->allFiles();
+
+        $fromUnix = strtotime($from);
+        $toUnix = strtotime($to);
+
+
+        for ($i = $fromUnix; $i <= $toUnix; $i += 86400) {
+            $fileName = date("Y-m-d", $i) . ".json";
+
+            if (in_array($fileName, $files)) {
+                $filtered[] = date("Y-m-d", $i);
+            }
+        }
+        if (empty($filtered)) {
+            return response()->json(array('success' => false, 'error' => 'No files available for given date range'));
+        } else {
+            return response()->json(array('success' => true, 'files' => $filtered));
+        }
+
+    }
+
+    public function subscribersLogsIndividual(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'file_name' => 'required',
+        ]);
+        if ($validator->fails()) {
+            return response()->json(array('success' => false, 'error' => $validator->errors()->all()));
+        }
+
+        $fileName = $request->file_name . '.json';
+        $table_headers = array();
+
+        $path = base_path() . "/subscriber/logs/" . $fileName;
+
+        $json = json_decode(file_get_contents($path), true);
+
+        foreach ($json['info'][0] AS $key => $name) {
+            if ($key != 'data') {
+                array_push($table_headers, $key);
+            }
+        }
+
+
+        /*$returnHTML = view('admin.logs.individual_file_contents')->with(['headers'=>$table_headers,'json'=>$json,'file_name'=>$fileName])->render();
+        return response()->json( array('success' => true, 'html'=>$returnHTML) );*/
+
+        return response()->json(array(
+            'success' => true,
+            'headers' => $table_headers,
+            'json' => $json,
+            'file_name' => $fileName
+        ));
+    }
+
+    public function individualData(Request $request)
+    {
+        /*
+         * this function is deprecated..
+         */
+        $source = $request->source;
+        $node = $request->node;
+        $type = $request->type;
+
+        $path = base_path() . "/subscriber/logs/" . $source;
+
+        $json = json_decode(file_get_contents($path), true);
+
+        if ($type == 'info') {
+            $data = htmlspecialchars($json['info'][$node]['data']);
+        } else {
+            if ($type == 'error') {
+                $data = htmlspecialchars($json['info'][$node]['data']);
+            } else {
+                return response()->json(array('success' => false, 'error' => 'UNKNOWN TYPE'));
+            }
+        }
+        return response()->json(array('success' => true, 'log_data' => $data));
+    }
+
+    public function viewCronsLogs()
+    {
+        $allFiles = Storage::disk('local')->allFiles('logs/CC');
+        $json_files = [];
+
+        foreach ($allFiles as $allFile) {
+            $singleFile = explode('/', $allFile);
+            $lastFile = $singleFile[2];
+
+            $ext = explode('.', $lastFile);
+            if (strtolower($ext[1]) == 'json') {
+                $json_files[] = $ext[0];;
+            }
+        }
+
+        if (false == isset($json_files)) {
+            return view('admin.logs.crons')->with('files', []);
+        }
+
+        usort($json_files, array($this, 'date_sort_latest'));
+
+        //get the latest 10 files
+
+        $count = 0;
+        $latest = [];
+        foreach ($json_files as $json_file) {
+            ++$count;
+            if ($count <= 10) {
+                $latest[] = $json_file;
+            }
+        }
+        return view('admin.logs.crons')->with('files', $latest);
+    }
+
+    public function cronLogsIndividual(Request $request)
+    {
+        $fileName = $request->file_name . '.json';
+        $table_headers = array();
+
+        $path = base_path() . "/storage/app/logs/CC/" . $fileName;
+
+        $json = json_decode(file_get_contents($path), true);
+
+
+        return response()->json(array('success' => true, 'data' => $json));
+    }
+
+    public function filterCcLogs(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'from' => 'required|date_format:d-m-Y',
+            'to' => 'required|date_format:d-m-Y|after:from',
+        ]);
+        if ($validator->fails()) {
+            return response()->json(array('success' => false, 'error' => $validator->errors()->all()));
+        }
+
+        $from = $request->from;
+        $to = $request->to;
+
+        $fromYMD = date('Y-m-d', strtotime($from));
+        $toYMD = date('Y-m-d', strtotime($to));
+
+        $files = Storage::disk('local')->allFiles('logs/CC');
+
+        foreach ($files as $file) {
+            $singleFile = explode('/', $file);
+            $lastFile = $singleFile[2];
+
+            $ext = explode('.', $lastFile);
+            if (strtolower($ext[1]) == 'json') {
+                $json_files[] = $lastFile;
+            }
+        }
+
+        $fromUnix = strtotime($from);
+        $toUnix = strtotime($to);
+
+
+        for ($i = $fromUnix; $i <= $toUnix; $i += 86400) {
+            $fileName = date("Y-m-d", $i) . ".json";
+
+            if (in_array($fileName, $json_files)) {
+                $filtered[] = date("Y-m-d", $i);
+            }
+        }
+        if (empty($filtered)) {
+            return response()->json(array('success' => false, 'error' => 'No files available for given date range'));
+        } else {
+            return response()->json(array('success' => true, 'files' => $filtered));
+        }
+    }
+
+    public function viewCronScLogs()
+    {
+        $allFiles = Storage::disk('local')->allFiles('logs/SC');
+        $json_files = [];
+
+        foreach ($allFiles as $allFile) {
+            $singleFile = explode('/', $allFile);
+            $lastFile = $singleFile[2];
+
+            $ext = explode('.', $lastFile);
+            if (strtolower($ext[1]) == 'json') {
+                $json_files[] = $ext[0];;
+            }
+        }
+        if (false == isset($json_files)) {
+            return view('admin.logs.cronsSc')->with('files', []);
+        }
+
+        usort($json_files, array($this, 'date_sort_latest'));
+
+        //get the latest 10 files
+
+        $count = 0;
+        $latest = [];
+        foreach ($json_files as $json_file) {
+            ++$count;
+            if ($count <= 10) {
+                $latest[] = $json_file;
+            }
+        }
+        return view('admin.logs.cronsSc')->with('files', $latest);
+    }
+
+    public function cronLogsIndividualSc(Request $request)
+    {
+        $fileName = $request->file_name . '.json';
+        $table_headers = array();
+
+        $path = base_path() . "/storage/app/logs/SC/" . $fileName;
+
+        $json = json_decode(file_get_contents($path), true);
+
+
+        return response()->json(array('success' => true, 'data' => $json));
+    }
+
+    public function filterScLogs(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'from' => 'required|date_format:d-m-Y',
+            'to' => 'required|date_format:d-m-Y|after:from',
+        ]);
+        if ($validator->fails()) {
+            return response()->json(array('success' => false, 'error' => $validator->errors()->all()));
+        }
+
+        $from = $request->from;
+        $to = $request->to;
+
+        $fromYMD = date('Y-m-d', strtotime($from));
+        $toYMD = date('Y-m-d', strtotime($to));
+
+        $files = Storage::disk('local')->allFiles('logs/SC');
+
+        foreach ($files as $file) {
+            $singleFile = explode('/', $file);
+            $lastFile = $singleFile[2];
+
+            $ext = explode('.', $lastFile);
+            if (strtolower($ext[1]) == 'json') {
+                $json_files[] = $lastFile;
+            }
+        }
+
+        $fromUnix = strtotime($from);
+        $toUnix = strtotime($to);
+
+
+        for ($i = $fromUnix; $i <= $toUnix; $i += 86400) {
+            $fileName = date("Y-m-d", $i) . ".json";
+
+            if (in_array($fileName, $json_files)) {
+                $filtered[] = date("Y-m-d", $i);
+            }
+        }
+        if (empty($filtered)) {
+            return response()->json(array('success' => false, 'error' => 'No files available for given date range'));
+        } else {
+            return response()->json(array('success' => true, 'files' => $filtered));
+        }
+    }
+
+    public function viewCronTcLogs()
+    {
+        $allFiles = Storage::disk('local')->allFiles('logs/TC');
+        $json_files = [];
+
+        foreach ($allFiles as $allFile) {
+            $singleFile = explode('/', $allFile);
+            $lastFile = $singleFile[2];
+
+            $ext = explode('.', $lastFile);
+            if (strtolower($ext[1]) == 'json') {
+                $json_files[] = $ext[0];;
+            }
+        }
+        if (false == isset($json_files)) {
+            return view('admin.logs.cronsTc')->with('files', []);
+        }
+        usort($json_files, array($this, 'date_sort_latest'));
+
+        //get the latest 10 files
+
+        $count = 0;
+        $latest = [];
+        foreach ($json_files as $json_file) {
+            ++$count;
+            if ($count <= 10) {
+                $latest[] = $json_file;
+            }
+        }
+        return view('admin.logs.cronsTc')->with('files', $latest);
+    }
+
+    public function cronLogsIndividualTc(Request $request)
+    {
+        $fileName = $request->file_name . '.json';
+        $table_headers = array();
+
+        $path = base_path() . "/storage/app/logs/TC/" . $fileName;
+
+        $json = json_decode(file_get_contents($path), true);
+
+
+        return response()->json(array('success' => true, 'data' => $json));
+    }
+
+    public function filterTcLogs(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'from' => 'required|date_format:d-m-Y',
+            'to' => 'required|date_format:d-m-Y|after:from',
+        ]);
+        if ($validator->fails()) {
+            return response()->json(array('success' => false, 'error' => $validator->errors()->all()));
+        }
+
+        $from = $request->from;
+        $to = $request->to;
+
+        $fromYMD = date('Y-m-d', strtotime($from));
+        $toYMD = date('Y-m-d', strtotime($to));
+
+        $files = Storage::disk('local')->allFiles('logs/TC');
+
+        foreach ($files as $file) {
+            $singleFile = explode('/', $file);
+            $lastFile = $singleFile[2];
+
+            $ext = explode('.', $lastFile);
+            if (strtolower($ext[1]) == 'json') {
+                $json_files[] = $lastFile;
+            }
+        }
+
+        $fromUnix = strtotime($from);
+        $toUnix = strtotime($to);
+
+
+        for ($i = $fromUnix; $i <= $toUnix; $i += 86400) {
+            $fileName = date("Y-m-d", $i) . ".json";
+
+            if (in_array($fileName, $json_files)) {
+                $filtered[] = date("Y-m-d", $i);
+            }
+        }
+        if (empty($filtered)) {
+            return response()->json(array('success' => false, 'error' => 'No files available for given date range'));
+        } else {
+            return response()->json(array('success' => true, 'files' => $filtered));
+        }
+    }
+
+    public function viewDownloadPage()
+    {
+        return view('admin.logs.download');
+    }
+
+    public function submitDownloadReason(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'reason' => 'required|min:50',
+            'from' => 'required',
+            'to' => 'required',
+        ]);
+        if ($validator->fails()) {
+            return response()->json(array('success' => false, 'error' => $validator->errors()->all()));
+        }
+
+        if (true == LogsDownloadedBy::createDownloadReason([
+                'admin_id' => Auth::guard('admin')->user()->id,
+                'reason' => $request->reason,
+                'from_date' => $request->from,
+                'to_date' => $request->to,
+            ])) {
+            return response()->json(array('success' => true, 'message' => 'Reason Saved Successfully'));
+        } else {
+            return response()->json(array('success' => false, 'error' => 'Sorry...Reason Not Saved'));
+        }
+    }
+
+    public function downloadZipGet($start, $end)
+    {
+
+        $from = date('Y-m-d H:i:s', strtotime($start));
+        $to = date('Y-m-d 23:59:59', strtotime($end));
+
+        $from_dt = new Datetime($from);
+        $to_dt = new DateTime($to);
+
+        $fileNameStartWith = $from_dt->format('d_m_Y') . '____' . $to_dt->format('d_m_Y');
+
+        //create a directory in storage/app/logs/Downloads with file name
+        Storage::disk('local')->makeDirectory('logs/Downloads/' . $fileNameStartWith);
+        $storagePath = base_path() . "/storage/app/logs/Downloads/" . $fileNameStartWith . "/";
+
+        //trade logs
+
+        $getTradeLogs = TradeLog::getTradeLogsByDates($from, $to);
+        $tradeLogsCsv = \League\Csv\Writer::createFromPath($storagePath . "TradeLogs.csv", "w");
+        $tradeLogsCsv->insertOne(\Schema::getColumnListing('trade_logs'));
+
+        foreach ($getTradeLogs as $getTradeLog) {
+            $tradeLogsCsv->insertOne($getTradeLog->toArray());
+        }
+
+        //transaction logs
+        $getTransactionLogs = TransactionLog::getTransactionsLogsByDates($from, $to);
+        $txnLogsCsv = \League\Csv\Writer::createFromPath($storagePath . "TransactionLogs.csv", "w");
+        $txnLogsCsv->insertOne(\Schema::getColumnListing('transaction_logs'));
+
+        foreach ($getTransactionLogs as $getTransactionLog) {
+            $txnLogsCsv->insertOne($getTransactionLog->toArray());
+        }
+
+        //user access logs
+        $getUALogs = UserAccessLog::getUALogsByDates($from, $to);
+        $uaLogsCsv = \League\Csv\Writer::createFromPath($storagePath . "UserAccessLogs.csv", "w");
+        $uaLogsCsv->insertOne(\Schema::getColumnListing('user_access_logs'));
+
+        foreach ($getUALogs as $getUALog) {
+            $uaLogsCsv->insertOne($getUALog->toArray());
+        }
+
+
+        //subscribers logs
+        Storage::disk('local')->makeDirectory('logs/Downloads/' . $fileNameStartWith . '/subscribers');
+
+        $files = Storage::disk('subscriber_logs')->allFiles();
+        $dateFrom = strtotime($from_dt->format('Y-m-d'));
+        $dateTo = strtotime($to_dt->format('Y-m-d'));
+
+
+        for ($i = $dateFrom; $i <= $dateTo; $i += 86400) {
+            $fileName = date("Y-m-d", $i) . ".json";
+            if (in_array($fileName, $files)) {
+                $stream = Storage::disk('subscriber_logs')->getDriver()
+                    ->readStream($fileName);
+
+                Storage::disk('local')->put('logs/Downloads/' . $fileNameStartWith . '/subscribers/' . $fileName,
+                    $stream);
+            }
+        }
+
+        //cc logs
+        Storage::disk('local')->makeDirectory('logs/Downloads/' . $fileNameStartWith . '/cc');
+        $ccFiles = Storage::disk('local')->allFiles('logs/CC');
+        for ($i = $dateFrom; $i <= $dateTo; $i += 86400) {
+            $fileName = date("Y-m-d", $i) . ".json";
+            if (in_array('logs/CC/' . $fileName, $ccFiles)) {
+                $stream = Storage::disk('local')->getDriver()
+                    ->readStream('logs/CC/' . $fileName);
+
+                Storage::disk('local')->put('logs/Downloads/' . $fileNameStartWith . '/cc/' . $fileName, $stream);
+            }
+        }
+        //sc logs
+        Storage::disk('local')->makeDirectory('logs/Downloads/' . $fileNameStartWith . '/sc');
+        $scFiles = Storage::disk('local')->allFiles('logs/SC');
+        for ($i = $dateFrom; $i <= $dateTo; $i += 86400) {
+            $fileName = date("Y-m-d", $i) . ".json";
+            if (in_array('logs/SC/' . $fileName, $scFiles)) {
+                $stream = Storage::disk('local')->getDriver()
+                    ->readStream('logs/SC/' . $fileName);
+
+                Storage::disk('local')->put('logs/Downloads/' . $fileNameStartWith . '/sc/' . $fileName, $stream);
+            }
+        }
+
+        //tc logs
+
+        Storage::disk('local')->makeDirectory('logs/Downloads/' . $fileNameStartWith . '/tc');
+        $tcFiles = Storage::disk('local')->allFiles('logs/TC');
+        for ($i = $dateFrom; $i <= $dateTo; $i += 86400) {
+            $fileName = date("Y-m-d", $i) . ".json";
+            if (in_array('logs/TC/' . $fileName, $tcFiles)) {
+                $stream = Storage::disk('local')->getDriver()
+                    ->readStream('logs/TC/' . $fileName);
+
+                Storage::disk('local')->put('logs/Downloads/' . $fileNameStartWith . '/tc/' . $fileName, $stream);
+            }
+        }
+
+        //laravel logs
+
+        Storage::disk('local')->makeDirectory('logs/Downloads/' . $fileNameStartWith . '/laravel');
+        $larFiles = Storage::disk('laravel_logs')->allFiles();
+
+        for ($i = $dateFrom; $i <= $dateTo; $i += 86400) {
+            $fileName = 'laravel-' . date("Y-m-d", $i) . ".log";
+            if (in_array($fileName, $larFiles)) {
+                $stream = Storage::disk('laravel_logs')->getDriver()
+                    ->readStream($fileName);
+
+                Storage::disk('local')->put('logs/Downloads/' . $fileNameStartWith . '/laravel/' . $fileName, $stream);
+            }
+        }
+
+        //Zip the directory altogether
+        $this->Zip($storagePath, base_path() . "/storage/app/logs/Downloads/" . $fileNameStartWith . '.zip');
+
+        //Download the Zipped file
+        $headers = [
+            'Pragma' => 'public',
+            'Expires' => 0,
+            'Content-Type' => 'application/octet-stream',
+            'Content-Disposition' => 'attachment; filename=\"' . $fileNameStartWith . '.zip\'"',
+            'Content-Transfer-Encoding' => 'binary'
+        ];
+        return response()->download(
+            storage_path('/app/logs/Downloads/' . $fileNameStartWith . '.zip'),
+            $fileNameStartWith . '.zip',
+            $headers)->deleteFileAfterSend(true);;
+
+    }
+
+    public function Zip($source, $destination)
+    {
+        if ( ! extension_loaded('zip') || ! file_exists($source)) {
+            return false;
+        }
+
+        $zip = new \ZipArchive;
+        if ( ! $zip->open($destination, \ZipArchive::CREATE)) {
+            return false;
+        }
+
+        $source = str_replace('\\', '/', realpath($source));
+
+        if (is_dir($source) === true) {
+            $files = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($source),
+                \RecursiveIteratorIterator::SELF_FIRST);
+
+            foreach ($files as $file) {
+                $file = str_replace('\\', '/', $file);
+
+                // Ignore "." and ".." folders
+                if (in_array(substr($file, strrpos($file, '/') + 1), array('.', '..'))) {
+                    continue;
+                }
+
+                $file = realpath($file);
+
+                if (is_dir($file) === true) {
+                    $zip->addEmptyDir(str_replace($source . '/', '', $file . '/'));
+                } else {
+                    if (is_file($file) === true) {
+                        $zip->addFromString(str_replace($source . '/', '', $file), file_get_contents($file));
+                    }
+                }
+            }
+        } else {
+            if (is_file($source) === true) {
+                $zip->addFromString(basename($source), file_get_contents($source));
+            }
+        }
+
+        return $zip->close();
+    }
+
+    public static function date_sort_latest($a, $b)
+    {
+        return strtotime($b) - strtotime($a);
+    }
+
+    public function downloadHistory()
+    {
+        $history=LogsDownloadedBy::getHistory();
+        return view('admin.logs.download_history')->with('history',$history);
+    }
+
+}
+

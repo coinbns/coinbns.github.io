@@ -1,0 +1,30 @@
+<?php
+
+namespace App\Models;
+
+use App\Models\Model;
+
+class OauthRefreshToken extends Model
+{
+    /*Delete Queries Start*/
+    /*Delete Queries End*/
+
+    /*Constants Declarations Start*/
+    /*Constants Declarations End*/
+
+    /*Relations Start*/
+    /*Relations End*/
+
+    /*Create Queries Start*/
+    /*Create Queries End*/
+
+    /*Find Queries Start*/
+    /*Find Queries End*/
+
+    /*Get Queries Start*/
+    /*Get Queries End*/
+
+    /*Update Queries Start*/
+    /*Update Queries End*/
+}
+

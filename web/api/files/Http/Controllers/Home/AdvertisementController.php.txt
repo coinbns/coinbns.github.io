@@ -1,0 +1,644 @@
+<?php
+
+namespace App\Http\Controllers\Home;
+
+use App\Http\Controllers\Controller;
+use App\Models\Advertisement;
+use App\Models\AdvertisementPaymentMethod;
+use App\Models\AdvertisementTimeSlot;
+use App\Models\Coin;
+use App\Models\CoinDetail;
+use App\Models\Country;
+use App\Models\Currency;
+use App\Models\PaymentMethod;
+use App\Models\Trade;
+use App\Models\User;
+use App\Models\UserCoin;
+use App\Models\WithdrawalRequest;
+use App\Models\EventLogger;
+use App\Notifications\TradeRequest;
+use Auth;
+use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
+use Validator;
+
+/**
+ * Controller to handle the Advertisements operations
+ *
+ * Class AdvertisementController
+ * @package App\Http\Controllers\Home
+ */
+class AdvertisementController extends Controller
+{
+    /**
+     * A common method to update and insert Advertisement.
+     *
+     * A user is able to create only 3 advertisements per type per coin. i.e for sell 3 and for buy 3
+     *
+     * <b>If advertisement id  `id`  is present in request then it will update the ad.</b>
+     *
+     * <b>If advertisement id  `id`  is not present in request then it will create an ad.</b>
+     *
+     * HIDDEN advertisements are also taken in account while creating an advertisement
+     *
+     * @uses AdvertisementTimeSlot::deleteTimeSlots() Dinesh
+     * @param Request $request
+     * @return mixed
+     */
+    public function upsertAdvertisement(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'trade_type' => 'required',
+            'margin_percentage' => 'required',
+            'payment_methods' => 'required|array|min:1|max:7',
+            'payment_methods.*.id' => 'required|integer',
+            'payment_window_minutes' => 'required',
+            'country_id' => 'required',
+            'timeslots' => 'array',
+            'timeslots.*.weekday' => 'min:1|max:7',
+            'timeslots.*.start_time' => 'nullable|date_format:H:i:s',
+            'timeslots.*.end_time' => 'nullable|date_format:H:i:s',
+            'status' => [
+                Rule::in([Advertisement::ACTIVE, Advertisement::HIDDEN]),
+            ],
+        ]);
+        if ($validator->fails()) {
+            return response()->api(false, implode(', ', $validator->errors()->all()), null);
+        }
+
+        if ($request->min_limit > $request->max_limit) {
+            return response()->api(false, 'Min Limit should be less than Max Limit', null);
+        }
+
+        $request->timeslots = array_filter($request->timeslots, function ($timeslot) {
+            return $timeslot['start_time'] != null || $timeslot['end_time'] != null;
+        });
+        foreach ($request->timeslots as $key => $timeslot) {
+            $timeslot['start_time'] != null || $timeslot['end_time'] != null;
+            if (new \DateTime($timeslot['end_time']) < new \DateTime($timeslot['start_time'])) {
+                return response()->api(false, "start time is greater than end time at {$timeslot['weekday_name']}",
+                    null);
+            }
+        }
+        // dd($request->all());
+
+        $country = Country::find($request->country_id);
+        if (true == empty($country)) {
+            return response()->api(false, 'country not found', null);
+        }
+
+        if (false == empty($request->id)) {
+            $advertisement = Advertisement::getUserAdvertisementPlain($request->coin_id, Auth::id(), $request->id);
+            if (true == empty($advertisement)) {
+                return response()->api(false, 'Advertisment not found', null);
+            }
+            $advertisement->load(['time_slots', 'payment_methods']);
+
+            $advertisement->margin_percentage = $request->margin_percentage;
+            $advertisement->payment_window_minutes = $request->payment_window_minutes;
+            $advertisement->terms = $request->terms ?? null;
+            $advertisement->min_limit = $request->min_limit ?? 0;
+            $advertisement->max_limit = $request->max_limit ?? null;
+            $advertisement->terms = $request->terms ?? null;
+            $advertisement->time_slots = $advertisement->time_slots->keyBy('weekday');
+            $adTimeSlots = $adPaymentMethods = [];
+            $timeSlotCount = 0;
+            // dd($request->timeslots);
+            foreach ($request->timeslots as $timeslot) {
+                $adTimeSlot = $advertisement->time_slots->get($timeslot['weekday']);
+                // dd($adTimeSlot, $adTimeSlot != null);
+                if ($adTimeSlot != null) {
+                    // dd($advertisement->time_slots[$index]);
+                    $adTimeSlot->start_time = $timeslot['start_time'];
+                    $adTimeSlot->end_time = $timeslot['end_time'];
+                    $adTimeSlot->save();
+                    $advertisement->time_slots->forget($timeslot['weekday']);
+                    $timeSlotCount++;
+                } else {
+                    array_push($adTimeSlots, [
+                        'advertisement_id' => $advertisement->id,
+                        'weekday' => $timeslot['weekday'],
+                        'start_time' => $timeslot['start_time'],
+                        'end_time' => $timeslot['end_time'],
+                        'created_at' => now(),
+                        'updated_at' => now(),
+                        'status' => AdvertisementTimeSlot::ACTIVE,
+                    ]);
+                }
+            }
+            // dd($adTimeSlots, $advertisement->time_slots);
+            if (false == empty($adTimeSlots)) {
+                AdvertisementTimeSlot::batchCreateTimeSlots($adTimeSlots);
+            }
+            if (false == $advertisement->time_slots->isEmpty()) {
+                AdvertisementTimeSlot::deleteTimeSlots($advertisement->time_slots->pluck('id'));
+            }
+            unset($advertisement->time_slots);
+            $advertisement->time_slot_count = $timeSlotCount + count($adTimeSlots);
+            $advertisement->save();
+
+            $pluckedPaymentMethods = $advertisement->payment_methods->pluck('payment_method_id');
+            foreach ($request->payment_methods as $paymentMethod) {
+                $adPaymentMethodIndex = $pluckedPaymentMethods->search($paymentMethod['id']);
+                if (false === $adPaymentMethodIndex) {
+                    array_push($adPaymentMethods, [
+                        'advertisement_id' => $advertisement->id,
+                        'payment_method_id' => $paymentMethod['id'],
+                        'created_at' => now(),
+                        'updated_at' => now(),
+                        'status' => AdvertisementPaymentMethod::ACTIVE,
+                    ]);
+                } else {
+                    unset($advertisement->payment_methods[$adPaymentMethodIndex]);
+                }
+            }
+            if (false == empty($adPaymentMethods)) {
+                AdvertisementPaymentMethod::batchCreatePaymentMethods($adPaymentMethods);
+            }
+            if (false == $advertisement->payment_methods->isEmpty()) {
+                AdvertisementPaymentMethod::deletePaymentMethods($advertisement->payment_methods->pluck('id'));
+            }
+
+            return response()->api(true, Advertisement::AD_UPDATED_MSG, ['id' => $request->id]);
+        }
+        $coinDetail = CoinDetail::findByCoinId($request->coin_id);
+        if (Advertisement::findCountByUserByType($request->coin_id, Auth::id(),
+                $request->trade_type) > ($coinDetail->max_ad_limit ?? 3)) {
+            return response()->api(false, 'Max Advertisment limit reached', $request->id);
+        }
+        
+        $advertisementId = Advertisement::createAdvertisement([
+            'user_id' => Auth::id(),
+            'coin_id' => $request->coin_id,
+            'currency_id' => Country::find(Auth::user()->country_id)->currency_id,
+            'country_id' => $request->country_id,
+            'trade_type' => $request->trade_type,
+            'time_slot_count' => count($request->timeslots),
+            'margin_percentage' => $request->margin_percentage,
+            'payment_window_minutes' => $request->payment_window_minutes,
+            'terms' => $request->terms ?? null,
+            'min_limit' => $request->min_limit ?? 0,
+            'max_limit' => $request->max_limit ?? null,
+            'is_reported' => 0,
+            'status' => Advertisement::ACTIVE,
+        ]);
+
+        $adTimeSlots = $adPaymentMethods = [];
+        foreach ($request->timeslots as $key => $timeslot) {
+            array_push($adTimeSlots, [
+                'advertisement_id' => $advertisementId,
+                'weekday' => $timeslot['weekday'],
+                'start_time' => $timeslot['start_time'],
+                'end_time' => $timeslot['end_time'],
+                'created_at' => now(),
+                'updated_at' => now(),
+                'status' => AdvertisementTimeSlot::ACTIVE,
+            ]);
+        }
+        AdvertisementTimeSlot::batchCreateTimeSlots($adTimeSlots);
+
+        foreach ($request->payment_methods as $key => $paymentMethod) {
+            array_push($adPaymentMethods, [
+                'advertisement_id' => $advertisementId,
+                'payment_method_id' => $paymentMethod['id'],
+                'created_at' => now(),
+                'updated_at' => now(),
+                'status' => AdvertisementPaymentMethod::ACTIVE,
+            ]);
+        }
+        AdvertisementPaymentMethod::batchCreatePaymentMethods($adPaymentMethods);
+
+        return response()->api(true, Advertisement::AD_CREATED_MSG, ['id' => $advertisementId]);
+    }
+
+    /**
+     * Changes status of advertisement from ACTIVE to HIDDEN and vice versa.
+     *
+     * @param int $advertisementId
+     * @param Request $request `status`
+     * @return mixed
+     */
+    public function changeStatus($advertisementId, Request $request)
+    {
+        $advertisement = Advertisement::findAdvertisementWithoutStatus($advertisementId);
+        if (true == empty($advertisement)) {
+            return response()->api(false, 'Advertisement not found', null);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'status' => [
+                'required',
+                Rule::in([Advertisement::ACTIVE, Advertisement::HIDDEN]),
+                ],
+        ]);
+
+        if ($validator->fails()) {
+            return response()->api(false, implode(', ', $validator->errors()->all()), null);
+        }
+
+        if(false == ($advertisement->user_id == Auth::guard('api')->user()->id)){
+            return response()->api(false, 'This advertisement does not belong to you !', null);
+        }
+
+        if(false == ($advertisement->status == $request->status)){
+            if(false==Advertisement::updateAd($advertisementId,['status'=>$request->status])){
+                return response()->api(false, 'Unable to update status currently, please try after some times', null);
+            }
+        }
+
+        return response()->api(true, 'Advertisement '.($request->status == Advertisement::HIDDEN ? 'de': '').'activated successfully', ['status'=>$request->status]);
+    }
+
+    /**
+     * 1. Fetches active advertisements on the very first home page
+     *
+     * 2. By default, advertisements which are for selling will be fetched first and then
+     * user can toggle the switch button to SELL , to see advertisements which are for buying
+     *
+     * 3. Users will not see their own advertisements.
+     *
+     * 4. Once the data is fetched, vue can handle the filtering of the advertisements in the browser.
+     *
+     * 5. Total count of popular and recent advertisements irrespective of offset and limit i.e `popular_count` and `recent_count` respectively are sent in response too.
+     *
+     * 6. By default `$request->offset` and `$request->limit` are not sent so in that case, offset = 0 and limit = 10,
+     *
+     * 6.1: When `Load More`, api is hit again with `offset` and `limit` request parameters so that next batch of advertisement should be loaded.
+     *
+     *
+     * @param Request $request
+     * @return mixed
+     */
+    public function getAdvertisements(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'coin' => 'required',
+            'trade_type' => 'required',
+            'country_id' => 'required',
+            // 'timezone' => 'required',
+            'types' => [
+                'required',
+                'array',
+                Rule::in(['popular', 'recent']),
+            ],
+            'payment_methods' => 'array',
+            'users' => 'array',
+            'min_limit' => 'integer',
+            'max_limit' => 'integer',
+            'min_margin' => 'regex:/^[-]?\d{0,2}(\.\d{0,2})?$/',
+            'max_margin' => 'regex:/^[-]?\d{0,2}(\.\d{0,2})?$/',
+        ]);
+        //min_margin, max_margin regex used for float
+        if ($validator->fails()) {
+            return response()->api(false, implode(', ', $validator->errors()->all()), null);
+        }
+
+        $country = Country::findCountry($request->country_id);
+        if (true == empty($country)) {
+            return response()->api(false, 'country not found', null);
+        }
+        $advertisementsQuery = Advertisement::getAdvertisementsBaseQuery(now($country->timezone), $request->trade_type ?? Advertisement::BUY, $request->coin_id, $country->id);
+
+        if (auth('api')->user() != null) {
+            $advertisementsQuery->where('advertisements.user_id', '<>', auth('api')->user()->id);
+        }
+        if (false == empty($request->payment_methods)) {
+            $paymentMethods = $request->payment_methods;
+            $advertisementsQuery->join('advertisement_payment_methods', 'advertisement_payment_methods.advertisement_id', '=', 'advertisements.id');
+            $advertisementsQuery->where(function ($query) use ($paymentMethods) {
+                for ($i = 0; $i < count($paymentMethods); $i++) {
+                    if ($i == 0) {
+                        $query->where('advertisement_payment_methods.payment_method_id', $paymentMethods[$i]);
+                    } else {
+                        $query->orWhere('advertisement_payment_methods.payment_method_id', $paymentMethods[$i]);
+                    }
+                }
+            });
+        }
+        if (false == empty($request->users)) {
+            $users = $request->users;
+            $advertisementsQuery->where(function ($query) use ($users) {
+                for ($i = 0; $i < count($users); $i++) {
+                    if ($i == 0) {
+                        $query->where('users.username', 'like', "%{$users[$i]}%");
+                    } else {
+                        $query->orWhere('users.username', 'like', "%{$users[$i]}%");
+                    }
+                }
+            });
+        }
+        if ($request->min_margin != null) {
+            $advertisementsQuery->where('advertisements.margin_percentage', '>=', $request->min_margin);
+        }
+        if ($request->max_margin != null) {
+            $advertisementsQuery->where('advertisements.margin_percentage', '<=', $request->max_margin);
+        }
+
+        if ($request->min_limit != null && $request->max_limit != null) {
+            $advertisementsQuery->where(function ($query) use ($request) {
+                $query->where([
+                    ['advertisements.max_limit', '>=', $request->max_limit],
+                    ['advertisements.min_limit', '<=', $request->min_limit],
+                ]);
+                $query->orWhere(function ($query) {
+                    $query->where('advertisements.min_limit', 0)->where('advertisements.max_limit', null);
+                });
+            });
+        }
+
+        $advertisements = [];
+        $popular_count = 0;
+        $recent_count = 0;
+        // $advertisements = $advertisementsQuery->get();
+        // dd(now($request->timezone)->format('N'), now($request->timezone)->format('H:i:s'));
+        foreach ($request->types as $key => $adType) {
+            $adQuery = clone $advertisementsQuery;
+            switch ($adType) {
+                case 'popular':
+                    // dump('in p');
+                    $popular_count = $adQuery->orderBy('user_coins.level', 'desc')->count();
+                    $typeAdvertisements = $adQuery->orderBy('user_coins.level', 'desc')->offset($request->offset ?? 0)->limit($request->limit ?? 10)->get();
+                    break;
+                case 'recent':
+                    // dump('in r');
+                    $recent_count = $adQuery->orderBy('advertisements.created_at', 'desc')->count();
+                    $typeAdvertisements = $adQuery->orderBy('advertisements.created_at', 'desc')->offset($request->offset ?? 0)->limit($request->limit ?? 10)->get();
+
+                    break;
+            }
+            $adPaymentMethods = AdvertisementPaymentMethod::getByAdIds($typeAdvertisements->pluck('id'))->groupBy('advertisement_id');
+
+            foreach ($typeAdvertisements as $key => $advertisement) {
+                $advertisement->price = $this->adPriceCalculator($advertisement->margin_percentage,
+                    $country->currency_rate,
+                    $advertisement->coin_price);
+
+                $advertisement->country_name = $country->name;
+                $advertisement->payment_methods = (false == empty($adPaymentMethods[$advertisement->id])) ? $adPaymentMethods[$advertisement->id]->pluck('payment_method_name') : [];
+                $advertisement->setHidden([
+                    'margin_percentage',
+                    'coin_price',
+                ]);
+            }
+            $advertisements[$adType] = $typeAdvertisements;
+        }
+
+
+        return response()->api(true, 'Advertisment fetched successfully', [
+            'currency_code' => $country->currency_code,
+            'currency_symbol' => $country->currency_symbol,
+            'ads' => $advertisements,
+            'popular_count' => $popular_count,
+            'recent_count' => $recent_count,
+        ]);
+    }
+
+    /**
+     * Fetches a user's advertisements
+     *
+     * limit passed is 0 i.e fetch all advertisements
+     *
+     * @param Request $request
+     * @return mixed
+     */
+    public function getUserAdvertisements(Request $request)
+    {
+        $advertisements = Advertisement::getUserAdvertisements(0, $request->coin_id, Auth::id());
+        $advertisements->load(['time_slots']);
+        $adPaymentMethods = AdvertisementPaymentMethod::getByAdIds($advertisements->pluck('id'))->groupBy('advertisement_id');
+        foreach ($advertisements as $key => &$advertisement) {
+            $advertisement->payment_methods = (false == empty($adPaymentMethods[$advertisement->id])) ? $adPaymentMethods[$advertisement->id] : [];
+            // $advertisement->price = $advertisement->coin_price * $country->currency_rate;
+            // $advertisement->price+= $advertisement->price * ($advertisement->margin_percentage/100);
+            // unset($advertisement->margin_percentage, $advertisement->coin_price);
+        }
+        
+
+        return response()->api(true, 'Advertisment fetched successfully', [
+            'user_ads' => $advertisements,
+            'countries' => Country::getCountriesFat(),
+            'payment_methods' => PaymentMethod::getActivePaymentMethods(),
+            'user_country_id' => Auth::user()->country_id,
+        ]);
+    }
+
+    /**
+     * <b>Used to respond to an advertisement</b>
+     * 
+     * 1. Finds whether a Trade is already Open or Pending between buyer and seller for a particular advertisement
+     *
+     * 2. Gets the other open trades of a seller and totals the trades value
+     *
+     * 3. Checks if there is any pending withdrawal request by the seller
+     *
+     * 4. Calculates the coin value a seller can spend i.e user coin balance - seller's open trades' value - pending withdrawal value
+     *
+     * 5. If value a seller can spend is greater than this trade value then proceed otherwise give error.
+     *
+     * 6. Calculates the immediate price of an advertisement taking the margin percentage in consideration.
+     *
+     * 7. Sets minimum (-5%) and maximum range (+5%) of advertisement pricing to mitigate the fluctuation.
+     *
+     * 8. If the coins value is under the minimum and maximum range then proceed otherwise give error.
+     *
+     * 9. Create a trade and notify the users.
+     *
+     * @param int $advertisementId
+     * @param Request $request
+     * @return mixed
+     */
+    public function answerAdvertisement($advertisementId, Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'coin_original_value' => 'required',
+            'fiat_price' => 'required',
+        ]);
+        if ($validator->fails()) {
+            return response()->api(false, implode(', ', $validator->errors()->all()), null);
+        }
+
+        $advertisement = Advertisement::findAdvertisement($advertisementId);
+        if (true == empty($advertisement)) {
+            return response()->api(false, 'Advertisement not found', null);
+        }
+
+        if (true == ($advertisement->is_reported == Advertisement::REPORTED)) {
+            return response()->api(false, 'You can not respond to a reported advertisement.', null);
+        }
+
+        if ($advertisement->user_id == Auth::guard('api')->user()->id) {
+            return response()->api(false, 'Gotcha..!!! You can not respond to your own advertisement', null);
+        }
+
+        if (false == empty(Trade::findPendingOrOpenTrade($advertisementId, Auth::id()))) {
+            return response()->api(false, 'A trade request is already made', null);
+        }
+
+        $coin = Coin::find($advertisement->coin_id);
+        switch ($advertisement->trade_type) {
+            case Advertisement::BUY:
+                $sellerId = Auth::id();
+                $buyerId = $advertisement->user_id;
+                $balance = UserCoin::findUserCoin($advertisement->coin_id, $sellerId)->balance;
+                $withdrawalFee = $coin->detail->withdrawal_fee;
+                $openTrades = Trade::getEscrowTradesBySellerId($advertisement->coin_id, $sellerId);
+                $canSpendAmount = $balance - $withdrawalFee;
+                foreach ($openTrades as $key => $openTrade) {
+                    $openTrade->amount = $openTrade->coin_original_value;
+                    $openTrade->setVisible([
+                        'id', 'amount',
+                    ]);
+                    $canSpendAmount -= $openTrade->amount;
+                }
+                $pendingWithdrawals = WithdrawalRequest::getUnprocessedRequestByUser($advertisement->coin_id, $sellerId);
+                foreach ($pendingWithdrawals as $key => $pendingWithdrawal) {
+                    $canSpendAmount -= $pendingWithdrawal->amount;
+                }
+                if ($request->coin_original_value > $canSpendAmount) {
+                    return response()->api(false, ($sellerId == Auth::id() ? 'Your' : "Seller's") . " balance is not enough", null);
+                }
+                break;
+            case Advertisement::SELL:
+                $sellerId = $advertisement->user_id;
+                $buyerId = Auth::id();
+                break;
+            default:
+                return response()->api(false, 'No such ad type exist', null);
+                break;
+        }
+
+        // dd(1);
+        //due to fluctuation of crypto prices we need to check fiat_Price is valid acc to current calculation of ad_price
+        //eg @12.00 btc price is 100 with margin 2% say 102 now calc of coin to currency and converse will be acc to 102 and not refreshed the ad and till
+        //@12.10 btc price is 150 with same margin say 160 now the fiat_price sent is acc to 102, so we check if it is in between 0.05 range if not raise error 
+        $currency = Currency::find($advertisement->currency_id);
+        $advertisement->price = $this->adPriceCalculator($advertisement->margin_percentage, $currency->rate,
+            $coin->price);
+        $min = $advertisement->price * $request->coin_original_value;
+        $min -= ($min * 0.05);
+        $max = $advertisement->price * $request->coin_original_value;
+        $max += ($max * 0.05);
+        if (($min >= $request->fiat_price)
+            || ($request->fiat_price >= $max)) {
+            return response()->api(false, 'price out of range, please reload the advertisement', null);
+        }
+
+        $trade = [
+            'coin_id' => $advertisement->coin_id,
+            'seller_id' => $sellerId,
+            'buyer_id' => $buyerId,
+            'advertisement_id' => $advertisementId,
+            'message' => $request->message ?? null,
+            'trade_margin_percentage' => $advertisement->margin_percentage,
+            'coin_value' => null,
+            'coin_original_value' => $request->coin_original_value,
+            'commision_value' => null,
+            'is_commision_transferred' => 0,
+            'did_buyer_confirmed_payment' => 0,
+            'did_seller_received_payment' => 0,
+            'did_seller_released_coins' => 0,
+            'did_buyer_received_coins' => 0,
+            'trade_status' => Trade::PENDING,
+            'started_at' => null,
+            'fiat_value' => $request->fiat_price,
+            'seller_trust_score' => 0,
+            'status' => Trade::ACTIVE,
+        ];
+
+        $tradeId = Trade::createTrade($trade);
+
+        $message = sprintf(
+            "%s wants to %s %f %s",
+            Auth::user()->username,
+            ($advertisement->trade_type == Advertisement::BUY) ? "sell" : "buy",
+            $request->coin_original_value,
+            $advertisement->coin_symbol
+        );
+        User::find($advertisement->user_id)->notify(new TradeRequest($tradeId, $message, $advertisementId));
+        $responseData = [
+            'advertisement_id' => $advertisementId,
+            'trade_id' => $tradeId,
+            'coin_original_value' => $request->coin_original_value
+        ];
+        return response()->api(true, 'Responded successfully to the advertisement', $responseData);
+    }
+
+    public function getAdvertisement($advertisementId, Request $request)
+    {
+        $advertisement = Advertisement::findFatAdvertisement($advertisementId);
+        if (true == empty($advertisement)) {
+            return response()->json(['message' => 'Not Found'], 404);
+        }
+
+        $advertisement->price = $this->adPriceCalculator($advertisement->margin_percentage,
+            $advertisement->currency_rate, $advertisement->coin_price);
+        if (auth('api')->user() != null) {
+            $tradeAmount = 0;
+            switch ($advertisement->trade_type) {
+                case Advertisement::BUY:
+                    //ad type is buy so auth person is seller
+                    $userId = auth('api')->user()->id;
+                    $userCoin = UserCoin::findUserCoin($advertisement->coin_id, $userId);
+                    
+                    $tradeAmount = $userCoin->balance;
+                    $tradeAmount -= $request->coin_obj->detail->withdrawal_fee;
+                    $tradeAmount -= WithdrawalRequest::getUnprocessedRequestByUser($advertisement->coin_id, $userId)->sum('amount');
+                    $tradeAmount -= Trade::getEscrowTradesBySellerId($advertisement->coin_id, $userId)->sum('coin_original_value');
+
+                    $advertisement->max_trade_amount = $tradeAmount;
+                    if ($advertisement->max_trade_amount < 0) {
+                        $advertisement->max_trade_amount = 0.000000;
+                    }
+                    break;
+                case Advertisement::SELL:
+                    //ad type is sell so auth person is buyer
+                    //not to check for max_trade_amount
+                    $advertisement->max_trade_amount = null;
+                    break;
+                default:
+                    return response()->api(false, 'No such Ad type exist', null);
+                    break;
+            }
+
+        }
+
+        $adPaymentMethods = AdvertisementPaymentMethod::getByAdId($advertisementId);
+        $advertisement->payment_methods = (false == empty($adPaymentMethods)) ? $adPaymentMethods->pluck('payment_method_name') : [];
+        //get ad owner's last country location
+        $last_location = EventLogger::findUsersLastEventLocation($advertisement->user_id, EventLogger::LOGIN);
+
+        if(false == $last_location){
+            $advertisement->last_location = [];
+        }else {
+            $advertisement->last_location = array(
+                'country' => $last_location->country,
+                'state' => $last_location->state,
+            );
+        };
+
+        $advertisement->setVisible([
+            'price', 'payment_methods', 'payment_window_minutes',
+            'terms', 'currency_symbol', 'coin_symbol', 'username', 'trade_type',
+            'max_limit', 'min_limit', 'max_trade_amount','country_name','last_location'
+        ]);
+
+        return response()->api(true, 'Ad fetched', $advertisement);
+    }
+
+    /**
+     * Calculates the immediate price of an advertisement taking the margin percentage in consideration.
+     *
+     * It is used due to frequent fluctuation of coin values to currency value.
+     *
+     * @param int|float $marginPercentage
+     * @param int|float $currencyRate
+     * @param int|float $coinPrice
+     * @return float|int
+     */
+    private function adPriceCalculator($marginPercentage, $currencyRate, $coinPrice)
+    {
+        $price = $coinPrice * $currencyRate;
+        return $price += $price * ($marginPercentage / 100);
+    }
+}
+

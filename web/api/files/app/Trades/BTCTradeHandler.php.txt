@@ -1,0 +1,91 @@
+<?php
+
+namespace App\Trades;
+
+use BitWasp\Bitcoin\Address\AddressCreator;
+use BitWasp\Bitcoin\Bitcoin;
+use BitWasp\Bitcoin\Network\NetworkFactory;
+use BitWasp\Bitcoin\Key\PrivateKeyFactory;
+use BitWasp\Bitcoin\Script\ScriptFactory;
+use BitWasp\Bitcoin\Transaction\Factory\Signer;
+use BitWasp\Bitcoin\Transaction\OutPoint;
+use BitWasp\Bitcoin\Transaction\TransactionFactory;
+use BitWasp\Bitcoin\Transaction\TransactionOutput;
+use BitWasp\Buffertools\Buffer;
+use GuzzleHttp\Client;
+
+class BTCTradeHandler
+{
+    protected $inputs;
+    protected $outputs;
+    protected $privateKey;
+    protected $nodeUrl;
+    public $transaction;
+    public $miningFee;
+
+    public function __construct()
+    {
+        if (config('app.testnet') == true) {
+            Bitcoin::setNetwork(NetworkFactory::bitcoinTestnet());
+            $this->nodeUrl = "https://testnet-api.smartbit.com.au/v1/";
+        }
+        $this->miningFee = 5000;
+    }
+
+    public function initialize(array $inputs, array $outputs)
+    {
+        $this->inputs = $inputs;
+        $this->outputs = $outputs;
+
+        return $this;
+    }
+
+    public function generateWallet()
+    {
+
+    }
+
+    public function createTransaction()
+    {
+        $addrCreator = new AddressCreator();
+
+        $transaction = TransactionFactory::build();
+
+        foreach ($this->inputs as $key => $input) {
+            $outpoint = new OutPoint(Buffer::hex($input['tx_id']), $input['v_out']);
+            $transaction->spendOutPoint($outpoint);
+        }
+        foreach ($this->outputs as $key => $output) {
+            $transaction->payToAddress($output['amount'], $addrCreator->fromString($output['public_key']));
+        }
+        $this->transaction = $transaction->get();
+
+        return $this;
+    }
+
+    public function signTransaction($privateKey)
+    {
+        $this->privateKey = PrivateKeyFactory::fromWif($privateKey);
+        $outputScript = ScriptFactory::scriptPubKey()->payToPubKeyHash($this->privateKey->getPubKeyHash());
+        $txOut = new TransactionOutput(collect($this->outputs)->pluck('amount')->sum() + $this->miningFee, $outputScript);
+        
+        $signed = (new Signer($this->transaction));
+        foreach ($this->inputs as $key => $input) {
+            $signed->sign($key, $this->privateKey, $txOut);
+        }
+        $this->transaction = $signed->get();
+
+        return $this;
+    }
+
+    public function broadcastTransaction()
+    {
+        $client = new \GuzzleHttp\Client();
+
+        $response = $client->request('POST', $this->nodeUrl . 'blockchain/pushtx', ['json' => ['hex' => $this->transaction->getHex()]]);
+        unset($client);
+
+        return $response->getBody();
+    }
+}
+

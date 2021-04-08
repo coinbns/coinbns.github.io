@@ -1,0 +1,86 @@
+<?php
+
+namespace App\Console\Commands;
+
+use App\Notifications\UserTradeLevel;
+use App\Models\Coin;
+use App\Models\User;
+use App\Models\UserCoin;
+use Illuminate\Console\Command;
+
+class TraderLevelEvaluateCommand extends Command
+{
+    /**
+     * The name and signature of the console command.
+     *
+     * @var string
+     */
+    protected $signature = 'trade:levelEvaluate';
+
+    /**
+     * The console command description.
+     *
+     * @var string
+     */
+    protected $description = 'Command description';
+
+    /**
+     * Create a new command instance.
+     *
+     * @return void
+     */
+    public function __construct()
+    {
+        parent::__construct();
+    }
+
+    /**
+     * Execute the console command.
+     *
+     * @return mixed
+     */
+    public function handle()
+    {
+        $levels = [1, 2, 3];
+        $coins = Coin::getActiveCoins()->load(['detail'])->keyBy('id');
+        foreach (UserCoin::getAllUserCoins()->groupBy('coin_id') as $coinId => $userCoins) {
+            $coin = $coins[$coinId];
+            foreach ($userCoins as $userCoin) {
+                $userLevel = 1;
+                for ($level = 2; $level < count($levels); $level++) {
+                    if ($userCoin->trade_volume > $coin->detail->{"trade_volume_to_reach_level_{$level}"}) {
+                        $userLevel = $level;
+                        continue;
+                    }
+                    break;
+                }
+                if ($userCoin->completed_trade_count > 0) {
+                    if ((($userCoin->completed_trade_count - $userCoin->trusted_trade_count)/$userCoin->completed_trade_count) > 0.5) {
+                        //if trusted level is low, demote
+                        // dump("to demote user#{$userCoin->user_id} coin {$coin->symbol}");
+                        $userLevel = ($userCoin->level > 1) ? ($userCoin->level - 1) : 1;
+                    }
+
+                }
+                if ($userCoin->level != $userLevel) {
+                    // dump($userCoin->toArray());
+                    if ($userLevel > $userCoin->level) {
+                        $message = "Congratulations your {$coin->symbol} trade limit has exceeded to ".number_format($coin->detail->{"level_{$userLevel}_max_trade_amount"}, 6);
+                    } else {
+                        $message = "Due to Low Trust in {$coin->symbol} trades, your {$coin->symbol} trade limit has been reduced to ".number_format($coin->detail->{"level_{$userLevel}_max_trade_amount"}, 6);
+                    }
+                    // dump($message);
+                    // User::find($userCoin->user_id)->notify(new UserTradeLevel($coin->symbol, $message));
+
+                }
+                $userCoin->level = $userLevel;
+                // $userCoin->max_trade_amount = $coin->detail->{"level_{$userLevel}_max_trade_amount"};
+                $userCoin->save();
+            }
+            foreach ($levels as $level) {
+                UserCoin::updateMaxTradeAmountByLevel($coinId, $level, $coin->detail->{"level_{$level}_max_trade_amount"});
+            }
+        }
+    }
+}
+

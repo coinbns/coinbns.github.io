@@ -1,0 +1,69 @@
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use Illuminate\Http\Request;
+use App\Http\Controllers\Controller;
+use Storage;
+
+class NodejsonController extends Controller
+{
+    public function viewAddressesJson()
+    {
+        if (Storage::disk('node_jsons')->exists('addresses.json')) {
+            $file = Storage::disk('node_jsons')->get('addresses.json');
+            return view('admin.node_json.viewJson')->with(['file' => $file, 'name' => 'Subscribers Json']);
+        } else {
+            abort(404);
+        }
+    }
+
+    public function viewTransactionsJson()
+    {
+        if (Storage::disk('node_jsons')->exists('transactions.json')) {
+            $file = Storage::disk('node_jsons')->get('transactions.json');
+            return view('admin.node_json.viewJson')->with(['file' => $file, 'name' => 'Transactions Json']);
+        } else {
+            abort(404);
+        }
+    }
+
+    public function viewConfigJson()
+    {
+        if (Storage::disk('node_jsons')->exists('config.json')) {
+            $file = Storage::disk('node_jsons')->get('config.json');
+            return view('admin.node_json.viewJson')->with(['file' => $file, 'name' => 'Config Json']);
+        } else {
+            abort(404);
+        }
+    }
+
+    public function viewSubscriberCoinConfigJson()
+    {
+        if (Storage::disk('storage')->exists('subscriber_coin_config.json')) {
+            $file = Storage::disk('storage')->get('subscriber_coin_config.json');
+            return view('admin.node_json.viewJson')->with(['file' => $file, 'name' => 'Subscriber Coin Config Json']);
+        } else {
+            abort(404);
+        }
+    }
+
+    public function curlAllData()
+    {
+        $url = config('app.subscriber_endpoint')."/data/meta";
+        // Step 1
+        $cSession = curl_init();
+        // Step 2
+        curl_setopt($cSession, CURLOPT_URL, $url);
+        curl_setopt($cSession, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($cSession, CURLOPT_HEADER, false);
+        // Step 3
+        $result = json_decode(curl_exec($cSession));
+        $result = json_encode($result->data->data_files);
+        // Step 4
+        curl_close($cSession);
+        // Step 5
+        return view('admin.node_json.viewCurlJson')->with(['result' => $result, 'name' => 'Subscribers Json']);
+    }
+}
+

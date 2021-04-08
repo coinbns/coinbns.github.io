@@ -1,0 +1,149 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use Illuminate\Foundation\Bus\DispatchesJobs;
+use Illuminate\Routing\Controller as BaseController;
+use Illuminate\Foundation\Validation\ValidatesRequests;
+use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
+use Auth;
+use Cache;
+use App\Models\Admin;
+use Hashids\Hashids;
+use App\Role;
+
+class Controller extends BaseController
+{
+    use AuthorizesRequests, DispatchesJobs, ValidatesRequests;
+
+    /**
+     * Converting a big number in Billions(B) or Millions(M)
+     * @param string $value
+     * @return string
+     */
+    public function formatScale($value)
+    {   
+        $value = str_replace(',', '', $value);
+        if ($value > 1000000 && $value < 1000000000) {
+            return number_format($value/1000000) ." M";
+        } else if ($value > 1000000000) {
+            return number_format($value/1000000000) ." B";
+        } else {
+            return ($value);
+        }
+    }
+
+    /**
+     * Confirms an admin user is, of a particular role by providing role constant as parameter.
+     *
+     * @param int $role
+     * @return bool
+     */
+    public function evaluateRole($role){
+        if(Auth::guard('admin')->user()->roles()->get()[0]->name==$role){
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Since, we can not join mongoDB and MySql together hence
+     *
+     * here we have used to insert `username` in the collection returned by mongo Query.
+     *
+     * @param array $collection
+     * @return mixed
+     */
+    public function insertAuthorUsernameInCollection($collection)
+    {
+        $uniqueCollection = $collection->unique('author_id');
+        $author_ids = [];
+
+        foreach($uniqueCollection as $item){
+            $username = Admin::findById($item->author_id)->username;
+            foreach($collection as $main){
+                if($main->author_id == $item->author_id){
+                    $main->username = $username;
+                }
+            }
+        }
+        return $collection;
+    }
+
+    /**
+     * Decodes encoded ids / hash in to normal integer Ids.
+     *
+     * Never decodes negative number's hash.
+     *
+     * Passing bogus string will return empty array.
+     *
+     * @param $hash
+     * @return string|integer
+     */
+    public function decodeHash($hash)
+    {
+        $hashLength = config('app.hashid_length');
+        $hashid = new Hashids(config('app.hashid_secret'), $hashLength);
+        $decoded = $hashid->decode($hash);
+        if(false == $decoded){
+            return 'Bogus/Invalid Hash provided';
+        }else{
+            return $decoded[0];
+        }
+    }
+
+    /**
+     * RECURSIVE FUNCTION:
+     *
+     * Used to fetch child roles parent roles recursively.
+     *
+     * If fetching child roles of a single parent role then initially cast the `$parentIdArray` parameter with (array)
+     *
+     * ***`Example: $result = $this->getChildRolesOfParentRoles((array)$parent_id,[]);`***
+     *
+     * @param array $parentIdArray
+     * @param array $mergedArray
+     * @return mixed
+     */
+    public function getChildRolesOfParentRoles($parentIdArray, $mergedArray)
+    {
+        $immChild = Role::getChildRoleIdByParentRoleId($parentIdArray);
+        if($immChild->count() <= 0){
+            $mergedArray = array_merge($parentIdArray,$mergedArray);
+            $key = array_search(Auth::guard('admin')->user()->roles()->get()[0]->id,$mergedArray);
+            if($key!==false){
+                unset($mergedArray[$key]);
+            }
+            return Role::getRolesByIds($mergedArray);
+        }else {
+            $mergedArray = array_merge($parentIdArray,$mergedArray);
+            $parentIdArray = [];
+        }
+
+        foreach($immChild as $value){
+            array_push($parentIdArray,$value->id);
+        }
+
+        return $this->getChildRolesOfParentRoles($parentIdArray,$mergedArray);
+    }
+
+    /**
+     *
+     * `true` if parent role has specified child role and `false` if not.
+     *
+     * @see \App\Http\Controllers\Controller::getChildRolesOfParentRoles() Uses getChildRolesOfParentRoles()
+     * @param int $childRoleId
+     * @param int $parentRoleId
+     * @return bool
+     */
+    public function evaluateChildRole($childRoleId,$parentRoleId)
+    {
+        $childRoles = $this->getChildRolesOfParentRoles((array)$parentRoleId,[]);
+        if($childRoles->where('id',$childRoleId)->count() > 0){
+            return true;
+        } else{
+            return false;
+        }
+    }
+}
+

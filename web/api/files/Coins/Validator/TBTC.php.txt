@@ -1,0 +1,15 @@
+<?php
+
+namespace Murich\PhpCryptocurrencyAddressValidation\Validation;
+
+use Murich\PhpCryptocurrencyAddressValidation\Validation;
+
+class TBTC extends Validation
+{
+    protected $base58PrefixToHexVersion = [
+        '2' => 'c4',
+        'm' => '6f',
+        'n' => '6f'
+    ];
+}
+

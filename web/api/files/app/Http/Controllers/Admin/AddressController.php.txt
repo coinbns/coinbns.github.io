@@ -1,0 +1,252 @@
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use App\Http\Controllers\Controller;
+use App\Events\BalanceUpdate;
+use App\Models\Coin;
+use App\Coins\CoinStrategy;
+use App\Models\PublicAddress;
+use App\Models\StorageAddress;
+use App\Models\FundAddress;
+use App\Models\Transaction;
+use App\Models\TransactionLog;
+use App\Models\User;
+use App\Models\UserCoin;
+use GuzzleHttp\Client;
+use Illuminate\Http\Request;
+use Validator;
+use Illuminate\Validation\Rule;
+
+class AddressController extends Controller
+{
+    public function viewPublicAddresses()
+    {
+        $coins = Coin::getCoinsWithDetail();
+        $addressCounts = PublicAddress::getAddressCountByCoin()->keyBy('coin_id');
+        $allocatedAddressCounts = PublicAddress::getAllocatedAddressCountByCoin()->keyBy('coin_id');
+        $maxIndexes = PublicAddress::getMaxIndexByAccountByCoin()->groupBy('coin_id');
+
+        return view('admin.address.public.list', compact('coins', 'addressCounts', 'allocatedAddressCounts', 'maxIndexes'));
+    }
+
+    public function addPublicAddresses(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'coin_id' => 'required',
+            'account_no' => 'required',
+            'limit' => 'required',
+        ]);
+        if ($validator->fails()) {
+            return response()->api(false, implode(', ', $validator->errors()->all()), null);
+        }
+
+        $coin = Coin::find($request->coin_id);
+        if (true == empty($coin)) {
+            return response()->api(false, 'Coin not found', null);
+        }
+
+        $maxIndex = PublicAddress::findMaxIndexByAccountByCoin($request->account_no, $request->coin_id);
+        $startIndex = ($maxIndex) ? ($maxIndex->index_no + 1) : 0;
+        $endIndex = $startIndex + $request->limit;
+        if ($endIndex > 2147483647) {
+            return response()->api(false, 'Max value reached', null);
+        }
+        $data = [
+            'coin' => $coin->name,
+            'coin_symbol' => $coin->symbol,
+            'bip_path' => $coin->detail->bip_path_start.'/',
+            'start' => (string)$startIndex,
+            // 'start' => (string)0,
+            'end' => (string)$endIndex,
+            // 'end' => (string)10,            
+            'account' => $request->account_no,
+            'change' => "0",
+            'script_type' => $coin->detail->script_type
+        ];
+        // dump($data);
+        $nodeResponse = makeNodeRequest($data,  '/api/get_address');
+        // dd($nodeResponse);
+        if ($nodeResponse['status'] == false) {
+            return response()->api($nodeResponse['status'], $nodeResponse['message'], $nodeResponse['data']);
+        }
+        // dd($nodeResponse);
+        $publicAddresses = [];
+        $addresses = $nodeResponse['data'];
+        // dd($addresses);
+        $indexNo = $startIndex;
+        foreach ($addresses as $key => $address) {
+            array_push($publicAddresses, [
+                'user_id' => null,
+                'coin_id' => $request->coin_id,
+                'account_no' => $request->account_no,
+                'index_no' => $indexNo,
+                'address' => $address,
+                'is_used' => 0,
+                'created_at' => now(),
+                'updated_at' => now(),
+                'status' => PublicAddress::ACTIVE,
+            ]);
+            $indexNo++;
+        }
+        // dd($publicAddresses);
+        PublicAddress::createBatch($publicAddresses);
+
+        return response()->api(true, "{$startIndex} - {$endIndex} addresses added to account {$request->acccount_no} total:".count($publicAddresses), null);
+    }
+
+    public function viewStorageAddresses()
+    {
+        $coins = Coin::getCoinsWithDetail();
+        $addressCounts = StorageAddress::getAddressCountByCoin()->keyBy('coin_id');
+        $usedAddressCounts = StorageAddress::getUsedAddressCountByCoin()->keyBy('coin_id');
+        $maxIndexes = StorageAddress::getMaxIndexByAccountByCoin()->groupBy('coin_id');
+
+        return view('admin.address.storage.list', compact('coins', 'addressCounts', 'usedAddressCounts', 'maxIndexes'));
+    }
+
+    public function addStorageAddresses(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'coin_id' => 'required',
+            'account_no' => 'required',
+            'limit' => 'required',
+        ]);
+        if ($validator->fails()) {
+            return response()->api(false, implode(', ', $validator->errors()->all()), null);
+        }
+
+        $coin = Coin::find($request->coin_id);
+        if (true == empty($coin)) {
+            return response()->api(false, 'Coin not found', null);
+        }
+
+        $maxIndex = StorageAddress::findMaxIndexByAccountByCoin($request->account_no, $request->coin_id);
+
+        $startIndex = ($maxIndex) ? ($maxIndex->index_no + 1) : 0;
+        $endIndex = $startIndex + $request->limit;
+        if ($endIndex > 2147483647) {
+            return response()->api(false, 'Max value reached', null);
+        }
+
+        $data = [
+            'coin' => $coin->name,
+            'coin_symbol' => $coin->symbol,
+            'bip_path' => $coin->detail->bip_path_start.'/',
+            'start' => (string)$startIndex,
+            'end' => (string)$endIndex,
+            'account' => $request->account_no,
+            'change' => "0",
+            'script_type' => $coin->detail->script_type
+        ];
+        $nodeResponse = makeNodeRequest($data,  '/api/get_address');
+        // dd($nodeResponse);
+        if ($nodeResponse['status'] == false) {
+            return response()->api($nodeResponse['status'], $nodeResponse['message'], $nodeResponse['data']);
+        }
+
+        $storageAddresses = [];
+        $addresses = $nodeResponse['data'];
+        $indexNo = $startIndex;
+        foreach ($addresses as $key => $address) {
+            array_push($storageAddresses, [
+                'coin_id' => $request->coin_id,
+                'account_no' => $request->account_no,
+                'index_no' => $indexNo,
+                'address' => $address,
+                'amount' => 0,
+                'mode' => StorageAddress::UN_USED,
+                'created_at' => now(),
+                'updated_at' => now(),
+                'status' => StorageAddress::ACTIVE,
+            ]);
+            $indexNo++;
+        }
+        StorageAddress::createBatch($storageAddresses);
+
+        return response()->api(true, "{$startIndex} - {$endIndex} addresses added to account {$request->acccount_no} total:".count($storageAddresses), null);
+    }
+
+    public function viewFundAddresses()
+    {
+        $coins = Coin::getCoinsWithDetail();
+        $addressCounts = FundAddress::getAddressCountByCoin()->keyBy('coin_id');
+        $usedAddressCounts = FundAddress::getUsedAddressCountByCoin()->keyBy('coin_id');
+        $maxIndexes = FundAddress::getMaxIndexByAccountByCoin()->groupBy('coin_id');
+
+        return view('admin.address.fund.list', compact('coins', 'addressCounts', 'usedAddressCounts', 'maxIndexes'));
+    }
+
+    public function addFundAddresses(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'coin_id' => 'required',
+            'account_no' => 'required',
+            'limit' => 'required',
+        ]);
+        if ($validator->fails()) {
+            return response()->api(false, implode(', ', $validator->errors()->all()), null);
+        }
+
+        $coin = Coin::find($request->coin_id);
+        if (true == empty($coin)) {
+            return response()->api(false, 'Coin not found', null);
+        }
+
+        $maxIndex = FundAddress::findMaxIndexByAccountByCoin($request->account_no, $request->coin_id);
+
+        $startIndex = ($maxIndex) ? ($maxIndex->index_no + 1) : 0;
+        $endIndex = $startIndex + $request->limit;
+        if ($endIndex > 2147483647) {
+            return response()->api(false, 'Max value reached', null);
+        }
+
+        $data = [
+            'coin' => $coin->name,
+            'coin_symbol' => $coin->symbol,
+            'bip_path' => $coin->detail->bip_path_start.'/',
+            'start' => (string)$startIndex,
+            'end' => (string)$endIndex,
+            'account' => $request->account_no,
+            'change' => "0",
+            'script_type' => $coin->detail->script_type
+        ];
+        $nodeResponse = makeNodeRequest($data,  '/api/get_address');
+        // dd($nodeResponse);
+        if ($nodeResponse['status'] == false) {
+            return response()->api($nodeResponse['status'], $nodeResponse['message'], $nodeResponse['data']);
+        }
+
+        $fundAddresses = [];
+        $addresses = $nodeResponse['data'];
+        $indexNo = $startIndex;
+        foreach ($addresses as $key => $address) {
+            array_push($fundAddresses, [
+                'coin_id' => $request->coin_id,
+                'account_no' => $request->account_no,
+                'index_no' => $indexNo,
+                'address' => $address,
+                'amount' => 0,
+                'mode' => FundAddress::UN_USED,
+                'created_at' => now(),
+                'updated_at' => now(),
+                'status' => FundAddress::ACTIVE,
+            ]);
+            $indexNo++;
+        }
+        FundAddress::createBatch($fundAddresses);
+
+        return response()->api(true, "{$startIndex} - {$endIndex} addresses added to account {$request->acccount_no} total:".count($fundAddresses), null);
+    }
+
+    public function depositAmount(Request $request)
+    {
+        return (new CoinStrategy($request->coin))->depositAmount($request);
+    }
+
+    public function markAddress(Request $request)
+    {
+        return (new CoinStrategy($request->coin))->markAddress($request);
+    }
+}
+

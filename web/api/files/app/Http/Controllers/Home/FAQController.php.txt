@@ -1,0 +1,28 @@
+<?php
+
+namespace App\Http\Controllers\Home;
+
+use Illuminate\Http\Request;
+use App\Http\Controllers\Controller;
+use App\Models\Faq;
+use App\Models\FaqTopic;
+
+class FAQController extends Controller
+{
+    public function getFAQs(Request $request)
+    {
+        $FAQ = FaqTopic::getTopics();
+        foreach ($FAQ as $key => $faq) {
+            $faq->data = [];
+        }
+        $FAQ->load(['data']);
+
+        return response()->api(true, 'Success', $FAQ);
+    }
+
+    public function getFAQData($faqTopicId, Request $request)
+    {
+        return response()->api(true, 'Success', Faq::getByFAQTitle($faqTopicId));
+    }
+}
+

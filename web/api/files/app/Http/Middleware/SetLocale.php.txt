@@ -1,0 +1,28 @@
+<?php
+
+namespace App\Http\Middleware;
+
+use App;
+use Closure;
+
+class SetLocale
+{
+    // ...
+    private $locales = ['ar', 'en'];
+
+    // ...
+    public function handle($request, Closure $next)
+    {
+        if (true == empty(session('language'))) {
+            session(['language' => config('app.language')]);
+        }
+        App::setLocale(session('language'));
+        
+        if (true == empty(session('currency'))) {
+            session(['currency' => config('app.currency')]);
+        }
+        
+        return $next($request);
+    }
+}
+

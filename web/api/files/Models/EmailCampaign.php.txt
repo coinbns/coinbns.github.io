@@ -1,0 +1,101 @@
+<?php
+
+namespace App\Models;
+
+use App\Models\MongoModel as Model;
+
+/**
+ * Uses MongoDB to hold email campaigns
+ * Class EmailCampaign
+ * @package App\Models
+ *
+ */
+class EmailCampaign extends Model
+{
+    protected $dates = ['run_till','created_at', 'updated_at'];
+
+    /*Constants Declarations Start*/
+
+    //type
+    const POSTS = 1;
+    const CUSTOM = 2;
+
+    /*Constants Declarations End*/
+
+    /*Relations Start*/
+    /*Relations End*/
+
+    /*Create Queries Start*/
+    public static function createCampaign($data)
+    {
+        $campaign = new self();
+
+        $campaign->campaign_name = $data['campaign_name'];
+        $campaign->campaign_source = $data['campaign_source'];
+        $campaign->campaign_medium = $data['campaign_medium'];
+        $campaign->campaign_term = $data['campaign_term'];
+        $campaign->campaign_content = $data['campaign_content'];
+        $campaign->short_desc = $data['short_desc'];
+        $campaign->run_till = $data['run_till'].":00";
+        $campaign->run_times = (int)0;
+        $campaign->type = (int)$data['type'];
+        $campaign->post_ids = $data['post_ids'];
+        $campaign->status = self::ACTIVE;
+
+        $campaign->save();
+    }
+    /*Create Queries End*/
+
+    /*Find Queries Start*/
+    public static function findById($campaignId)
+    {
+        return self::where('_id',$campaignId)->first();
+    }
+    /*Find Queries End*/
+
+    /*Get Queries Start*/
+    public static function getCampaigns()
+    {
+        return self::get();
+    }
+
+    public static function getActiveCampaigns()
+    {
+        return self::active()->get();
+    }
+    /*Get Queries End*/
+
+    /*Update Queries Start*/
+    public static function updateCampaign($campaignId,$data)
+    {
+        $campaign = self::findById($campaignId);
+
+        $campaign->campaign_name = $data['campaign_name'];
+        $campaign->campaign_source = $data['campaign_source'];
+        $campaign->campaign_medium = $data['campaign_medium'];
+        $campaign->campaign_term = $data['campaign_term'];
+        $campaign->campaign_content = $data['campaign_content'];
+        $campaign->short_desc = $data['short_desc'];
+        $campaign->run_till = $data['run_till'].":00";
+        $campaign->type = (int)$data['type'];
+        $campaign->post_ids = $data['post_ids'];
+
+        $campaign->save();
+    }
+
+    public static function updateTimedOutCampaigns($timed_out_campaign_ids)
+    {
+        $q = self::whereIn('_id',$timed_out_campaign_ids)->update(['status'=>self::INACTIVE]);
+    }
+
+    public static function updateCampaignRunTimes($campaignIds = null)
+    {
+        if(true == $campaignIds) {
+            foreach ($campaignIds as $campaign_id) {
+                self::where('_id', $campaign_id['campaign_id'])->update(['run_times' => $campaign_id['next_count']]);
+            }
+        }
+    }
+    /*Update Queries End*/
+}
+

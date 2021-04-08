@@ -1,0 +1,44 @@
+<?php
+
+namespace App\Models;
+
+use App\Models\Model;
+
+class TradeLog extends Model
+{
+    public $timestamps = false;
+
+    /*Create Queries Start*/
+    public static function createLog($data)
+    {
+        $log = new self;
+
+        $log->user_id = $data['user_id'];
+        $log->trade_id = $data['trade_id'];
+        $log->description = $data['description'];
+        $log->created_at = $data['created_at'];
+        $log->status = $data['status'];
+
+        return $log->save();
+    }
+    /*Create Queries End*/
+
+    /*Get Queries Start*/
+    public static function getLogsByTradeId($id)
+    {
+        return self::where('trade_id', $id)->get();
+    }
+
+    public static function getLogsByUserId($userId)
+    {
+        return self::where('user_id', $userId)->get();
+    }
+
+    public static function getTradeLogsByDates($from, $to)
+    {
+        return self::where('created_at', '>=', $from)
+            ->where('created_at', '<=', $to)->get();
+    }
+    /*Get Queries End*/
+}
+

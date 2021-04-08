@@ -1,0 +1,116 @@
+<?php
+
+namespace App\Models;
+
+use App\Models\Model;
+
+class AuthorizationChallenge extends Model
+{
+    //challenge_type
+    const MNEMONIC_CHALLENGE = 1;
+    const GAUTH_CHALLENGE = 2;
+    const MOBILE_OTP_CHALLENGE = 3;
+
+    //challenge_status
+    const PASSED = 1;
+    const PENDING = 2;
+    const TIMED_OUT = 3;
+
+    //status
+    const DELETED=0;
+    const ACTIVE = 1;
+    const INACTIVE = 2;
+
+    //complexity
+    const RELEASE_COIN = 1;
+    const PASSWORD_RESET_COMPLEXITY = 2;
+    const EMAIL_RESET_COMPLEXITY = 2.5;
+    const LOGIN_COMPLEXITY = 3;
+    const FORGET_PASSWORD_COMPLEXITY = 4;
+    const WITHDRAWAL_COMPLEXITY = 5;
+
+    public $dates = [
+        'valid_till'
+    ];
+
+    /*Create Queries Start*/
+    public static function createChallenge($data)
+    {
+        $challenge = new self;
+
+        $challenge->user_id = $data['user_id'];
+        $challenge->challenge_type = $data['challenge_type'];
+        $challenge->numbers = $data['numbers'];
+        $challenge->complexity = $data['complexity'];
+        $challenge->challenge_status = $data['challenge_status'];
+        $challenge->retry_count = $data['retry_count'];
+        $challenge->valid_till = $data['valid_till'];
+        $challenge->status = $data['status'];
+
+        return $challenge->save();
+    }
+    /*Create Queries End*/
+
+    /*Find Queries Start*/
+
+    /**
+     * An Authorization complexity is set to every user which defines complexity for each events like password reset, withdrawal request etc.
+     * @param int $userId
+     * @param int $complexity
+     * @return mixed
+     */
+    public static function findByUserIdByTypeByComplexity($userId, $challengeType, $complexity)
+    {
+        return self::where('user_id', $userId)
+            ->where('challenge_type', $challengeType)
+            ->where('complexity', $complexity)
+            ->active()
+            ->latest()
+            ->first();
+    }
+
+    /**
+     * It finds if the particular challenge is passed for the events like : LOGIN | PASSWORD_RESET | FORGET_PASSWORD | WITHDRAWAL
+     *
+     * @param int $userId
+     * @param int $challengeType
+     * @param int $complexity
+     * @return mixed
+     */
+    public static function findValidPassedByUserIdByTypeByComplexity($userId, $challengeType, $complexity)
+    {
+        return self::where('user_id', $userId)
+            ->where('challenge_type', $challengeType)
+            ->where('complexity', $complexity)
+            ->where('challenge_status', self::PASSED)
+            ->where('valid_till', '>', now())
+            ->active()
+            ->latest()
+            ->first();
+    }
+
+    /**
+     * It finds if the particular challenge is passed
+     *
+     * @param int $userId
+     * @param int $complexity
+     * @return mixed
+     */
+    public static function findValidPassedByUserIdByComplexity($userId, $complexity)
+    {
+        return self::where('user_id', $userId)
+            ->where('complexity', $complexity)
+            ->where('challenge_status', self::PASSED)
+            ->where('valid_till', '>', now())
+            ->active()
+            ->latest()
+            ->first();
+    }
+
+    /*Find Queries End*/
+
+    /*Get Queries Start*/
+    
+    /*Get Queries End*/
+}
+

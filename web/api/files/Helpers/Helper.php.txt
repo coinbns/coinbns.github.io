@@ -1,0 +1,373 @@
+<?php
+
+if ( ! function_exists('generateRandomString')) {
+
+    /**
+     * Generates a random string of specified length.
+     *
+     * @param int $length default is 10
+     * @param string $keyspace A set of characters i.e string from which random characters will be choosen
+     * @return string
+     * @throws Exception
+     */
+    function generateRandomString(
+        $length = 10,
+        $keyspace = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'
+    ) {
+        $pieces = [];
+        $max = mb_strlen($keyspace, '8bit') - 1;
+        for ($i = 0; $i < $length; ++$i) {
+            $pieces[] = $keyspace[random_int(0, $max)];
+        }
+        return implode('', $pieces);
+    }
+}
+
+if ( ! function_exists('passwordGenerator')) {
+
+    /**
+     * @deprecated
+     * @return string
+     */
+    function passwordGenerator()
+    {
+        $totalNo = 3;
+        $password = [];
+        $dictionary = json_decode(file_get_contents(storage_path('password_dictionary.json')));
+        $dictionaryWordCount = count($dictionary);
+        for ($i = 0; $i < $totalNo; $i++) {
+            $word = $dictionary[mt_rand(0, $dictionaryWordCount - 1)];
+            if ($i != 0) {
+                $word = ucfirst($word);
+            }
+
+            array_push($password, $word);
+        }
+        return implode('', $password);
+    }
+}
+
+if ( ! function_exists('randomNumGenerator')) {
+    /**
+     * Generates an array of random numbers between specified min and max numbers,total numbers in array is as per specified count
+     * Used specifically for Mnemonic words
+     *
+     * @param int $min
+     * @param int $max
+     * @param int $count
+     * @return array
+     */
+    function randomNumGenerator($min, $max, $count)
+    {
+        $numbers = [];
+        while (count($numbers) < $count) {
+            array_push($numbers, mt_rand($min, $max - 1));
+            $numbers = array_unique($numbers);
+        }
+
+        return $numbers;
+    }
+}
+
+if ( ! function_exists('encodeHash')) {
+    /**
+     * Used to encode a string into hash. Especially used for Passwords.
+     * @param string $value
+     * @return string
+     */
+    function encodeHash($value)
+    {
+        if (config('app.enable_hashid')) {
+            return (new Hashids\Hashids(config('app.hashid_secret'), config('app.hashid_length')))->encode($value);
+        }
+        return $value;
+    }
+}
+
+if ( ! function_exists('limitTextWords')) {
+
+    /**
+     * Used to limit text or string to display read more if contents are more than provided limit.
+     *
+     * @param bool $content Text/String to be passed
+     * @param bool $limit In whole numbers
+     * @param bool $stripTags
+     * @param bool $ellipsis whether to include `...` at the end.
+     * @return array|bool|string
+     */
+    function limitTextWords($content = false, $limit = false, $stripTags = false, $ellipsis = false)
+    {
+        if ($content && $limit) {
+            $content = ($stripTags ? strip_tags($content) : $content);
+            $content = explode(' ', $content, $limit + 1);
+            array_pop($content);
+            if ($ellipsis) {
+                array_push($content, '...');
+            }
+            $content = implode(' ', $content);
+        }
+        return $content;
+    }
+}
+
+if ( ! function_exists('stringCleaner')) {
+
+    /**
+     * Remove non-alphanumeric characters from a given string and returns a pure alphanumeric string
+     *
+     * @example `Hello " &    world >` will be cleaned and returned as `Hello world` i.e retaining 1 space between each word
+     * @param $string
+     * @return null|string|string[]
+     */
+    function stringCleaner($string)
+    {
+        $clean_string = trim(preg_replace('/\s+/', ' ', preg_replace('/[^a-zA-Z0-9 ]/', '', $string)));
+        return $clean_string;
+    }
+}
+
+if ( ! function_exists('decodeHash')) {
+    /**
+     * Used to decode a hash into string.
+     * @param string $value
+     * @return string
+     */
+    function decodeHash($hash)
+    {
+        if (config('app.enable_hashid')) {
+            $hashLength = config('app.hashid_length');
+            $hashid = new Hashids\Hashids(config('app.hashid_secret'), $hashLength);
+            $decoded = $hashid->decode($hash);
+            if (false == $decoded) {
+                return 'Bogus/Invalid Hash provided';
+            } else {
+                return $decoded[0];
+            }
+        }
+        return $hash;
+    }
+}
+
+if ( ! function_exists('sendMessage')) {
+    /**
+     * To send SMS to user on various events(depreciated, use otp notification instead).
+     *
+     * @todo the api used in following method is currently applicable for Indian Mobile numbers, a global SMS api will be used in future
+     * @param string $content Content of Message for SMS
+     * @param int $contact recipient mobile number
+     * @return bool|string
+     */
+    // function sendMessage($content, $contact)
+    // {
+    //     return file_get_contents("http://sms.webstag.net/sendSMS?username=" . config('app.sms_app_username') . "&message=" . urlencode($content) . "&sendername=" . config('app.sms_sender_name') . "&smstype=TRANS&numbers={$contact}&apikey=" . config('app.sms_app_key'));
+    // }
+}
+
+if ( ! function_exists('makeNodeRequest')) {
+    /**
+     * @param array $data
+     * @param string $endpoint
+     * @return array
+     * @throws \GuzzleHttp\Exception\GuzzleException
+     */
+    function makeNodeRequest($data, $endpoint)
+    {
+        // $rsaNode = new \phpseclib\Crypt\RSA;
+        try {
+            $laraPriKey = file_get_contents(storage_path('key/lara-private.key'));
+        } catch (\Exception $e) {
+            return [
+                'status' => false,
+                'message' => "No lara private key present",
+                'data' => null
+            ];
+        }
+        try {
+            $nodePubKey = file_get_contents(storage_path('key/node-public.key'));
+        } catch (\Exception $e) {
+            return [
+                'status' => false,
+                'message' => "No node public key present",
+                'data' => null
+            ];
+        }
+        // dd($nodePubKey);
+        // $rsaNode->loadKey($nodePubKey);
+
+        $data = json_encode($data);
+        // $rsaNode->setEncryptionMode(\phpseclib\Crypt\RSA::ENCRYPTION_PKCS1);
+        // $ciphertext = $rsaNode->encrypt($data);
+        // dump($ciphertext);
+        // dd(base64_encode($ciphertext));
+        $client = new \GuzzleHttp\Client();
+
+        try {
+            $nodeKeyResponse = $client->request('GET', config('app.node_url') . '/api/aes-key', [
+                'body' => "",
+                'headers' => ['Content-Type' => 'text/plain']
+            ]);
+        } catch (\Exception $e) {
+            return [
+                'status' => false,
+                'message' => "Error caught while aes hit: " . $e->getMessage(),
+                'data' => null
+            ];
+        }
+
+        $nodeKeyOutput = (string)$nodeKeyResponse->getBody();
+        // dd($nodeKeyOutput);
+        $rsaLara = new \phpseclib\Crypt\RSA;
+        $rsaLara->loadKey($laraPriKey);
+        $rsaLara->setEncryptionMode(\phpseclib\Crypt\RSA::ENCRYPTION_PKCS1);
+        try {
+            // dd(base64_decode($nodeKeyOutput));
+            $decryptedKeyData = $rsaLara->decrypt(base64_decode($nodeKeyOutput));
+            $finalKeyData = json_decode($decryptedKeyData);
+            // dump($decryptedData);
+            // dump($finalKeyData);
+        } catch (\Exception $e) {
+            return [
+                'status' => false,
+                'message' => "Error caught while decyrpt from node @aes: " . $e->getMessage(),
+                'data' => null
+            ];
+        }
+
+        $laraCipher = new phpseclib\Crypt\AES(); // could use AES::MODE_CBC
+        $key = base64_decode($finalKeyData->data);
+        $laraCipher->setKey($key);
+        $iv = phpseclib\Crypt\Random::string($laraCipher->getBlockLength() >> 3);
+        $laraCipher->setIV($iv);
+        $enc = $laraCipher->encrypt($data);
+        $body = base64_encode($iv) . ":" . base64_encode($enc);
+        // dd($body);
+        try {
+            $nodeResponse = $client->request('POST', config('app.node_url') . $endpoint, [
+                'body' => $body,
+                'headers' => ['Content-Type' => 'text/plain']
+            ]);
+        } catch (\Exception $e) {
+            return [
+                'status' => false,
+                'message' => "Error caught while {$endpoint} hit: " . $e->getMessage(),
+                'data' => null
+            ];
+        }
+
+        unset($client);
+        $nodeOutput = (string)$nodeResponse->getBody();
+        // dd($nodeOutput);
+        // $rsaLara = new \phpseclib\Crypt\RSA;
+        // $rsaLara->loadKey($laraPriKey);
+        try {
+            $nodeSplittedOp = explode(':', $nodeOutput);
+            // dump(base64_encode($key));
+            // dump($nodeSplittedOp);
+            $nodeCipher = new phpseclib\Crypt\AES();
+            $nodeCipher->setKey($key);
+            $nodeCipher->setIV(base64_decode($nodeSplittedOp[0], true));
+            $decryptedData = $nodeCipher->decrypt(base64_decode($nodeSplittedOp[1], true));
+            if ($decryptedData == false) {
+                return [
+                    'status' => false,
+                    'message' => "Error while decyrpt from node @{$endpoint}: " . $e->getMessage(),
+                    'data' => null
+                ];
+            }
+
+            // dump('dump',$decryptedData);
+            $finalData = json_decode($decryptedData);
+            // dump($finalData);
+        } catch (\Exception $e) {
+            return [
+                'status' => false,
+                'message' => "Error caught while decyrpt from node @{$endpoint}: " . $e->getMessage(),
+                'data' => null
+            ];
+        }
+        // dd($finalData);
+        if ($finalData->status == false) {
+            return [
+                'status' => false,
+                'message' => $finalData->message,
+                'data' => $finalData->data
+            ];
+        }
+        // dd($finalData);
+        return [
+            'status' => true,
+            'message' => $finalData->message,
+            'data' => $finalData->data
+        ];
+
+    }
+}
+
+if ( ! function_exists('getLocationByIpAddress')) {
+
+    /**
+     * Fetches location details from an incoming IP address.
+     *
+     * Used for Event Logger in mongodb.
+     *
+     * 1. First tries to get location from geoplugin.net
+     *
+     * 2. If the status is 404 (most probably for localhost or 127.0.0.1 or local network IP 192.168.*.*)
+     * It will check ISP's ipaddress i.e external IP address and then recursively find the location of that IP using geoplugin.net
+     *
+     * 3. Some location might not have States so that there will be STATE_NOT_FOUND and STATE_CODE_NOT_FOUND entry.
+     *
+     * @see \App\Models\EventLogger::createLog();
+     * @link http://www.geoplugin.net Geoplugin API
+     * @param string $ip
+     * @return string
+     */
+    function getLocationByIpAddress($ip)
+    {
+        $locationDetails = [];
+        //$randIP = "".mt_rand(0,255).".".mt_rand(0,255).".".mt_rand(0,255).".".mt_rand(0,255);
+        $location = json_decode(file_get_contents('http://www.geoplugin.net/json.gp?ip=' . $ip));
+
+        if ($location->geoplugin_status == 404) {
+            $externalContent = file_get_contents('http://checkip.dyndns.com/');
+            preg_match('/Current IP Address: \[?([:.0-9a-fA-F]+)\]?/', $externalContent, $m);
+            $externalIp = $m[1];
+
+            return getLocationByIpAddress($externalIp);
+        }
+
+        $locationDetails['country_code'] = $location->geoplugin_countryCode;
+        $locationDetails['country'] = $location->geoplugin_countryName;
+
+        if (empty($location->geoplugin_regionName)) {
+            $locationDetails['state'] = 'STATE_NOT_FOUND';
+            $locationDetails['state_code'] = 'STATE_CODE_NOT_FOUND';
+        } else {
+            $locationDetails['state'] = $location->geoplugin_regionName;
+            $locationDetails['state_code'] = $location->geoplugin_regionCode;
+        }
+
+
+        $locationDetails['latitude'] = $location->geoplugin_latitude;
+        $locationDetails['longitude'] = $location->geoplugin_longitude;
+
+        return json_encode($locationDetails);
+    }
+}
+
+if ( ! function_exists('floordec')) {
+    /**
+     * Used to convert a floating point number in floor value till the specified decimal precision
+     *
+     * <b>10.859647 => 10.86 and 17 => 17 (an Integer will be the same)</b>
+     *
+     * @param float|int $zahl A floating point value or an Integer
+     * @param int $decimals Precision after the decimal point.
+     * @return float|int
+     */
+    function floordec($zahl, $decimals = 2)
+    {
+        return floor($zahl * pow(10, $decimals)) / pow(10, $decimals);
+    }
+}
+

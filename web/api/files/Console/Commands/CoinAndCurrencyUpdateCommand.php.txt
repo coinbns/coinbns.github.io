@@ -1,0 +1,128 @@
+<?php
+
+namespace App\Console\Commands;
+
+use Illuminate\Console\Command;
+use App\Models\Currency;
+use App\Models\Coin;
+use GuzzleHttp\Client;
+use Storage;
+class CoinAndCurrencyUpdateCommand extends Command
+{
+
+    const COINS_MARKET_DATA_URL = 'https://min-api.cryptocompare.com/data/pricemultifull?fsyms=%s&tsyms=%s';
+    /**
+     * The name and signature of the console command.
+     *
+     * @var string
+     */
+    protected $signature = 'coinCurrency:update';
+
+    /**
+     * The console command description.
+     *
+     * @var string
+     */
+    protected $description = 'coin data and currency rate updation';
+
+    /**
+     * Create a new command instance.
+     *
+     * @return void
+     */
+    public function __construct()
+    {
+        parent::__construct();
+    }
+
+    /**
+     * Execute the console command.
+     *
+     * @return mixed
+     */
+    public function handle()
+    {
+        set_time_limit(1800);
+        // set time limit to 30 minutes
+        // update FX rates
+        $updatedCurrenciesCount = 0;
+        $client = new \GuzzleHttp\Client();
+        $log = $updatedCurrencies = [];
+        $apiKey = config('app.open_ex_rates_app_id');
+        if ($apiKey && (time() - strtotime(Currency::findLastUpdatedCurrency()['updated_at']) >= 3600)) {
+            // $requestUrl = "http://www.mocky.io/v2/5b8cf9913300006f00c157b4";
+            $requestUrl = "https://openexchangerates.org/api/latest.json?app_id={$apiKey}";
+            $log[] = 'The url=' . $requestUrl;
+            if ($response = $client->request('GET', $requestUrl)) {
+                $json = json_decode($response->getBody());
+                if (isset($json->rates)) {
+                    foreach ($json->rates as $symbol => $rate) {
+                        $updated = Currency::updateRateBySymbol(number_format($rate, 5, '.', ''), $symbol);
+                        if ($updated) {
+                            $updatedCurrencies[] = $symbol;
+                            $updatedCurrenciesCount++;
+                        }
+                    }
+                } else {
+                    $log[] = 'Unexpected response from openexchangerates API';
+                    $log[] = $response;
+                }
+            }
+        }
+        if ($updatedCurrenciesCount) {
+            $log[] = "{$updatedCurrenciesCount} currencies were updated namely (" . implode('.', $updatedCurrencies) . ")";
+        } else {
+            $log[] = 'No Currencies were updated';
+        }
+        
+        // update coins data
+        $updatedCoinsCount = 0;
+        $coins = Coin::getCoins();
+        $symbols = [];
+        foreach ($coins as $key => $coin) {
+            if ($coin->is_testnet == 1) {
+                array_push($symbols, substr($coin->symbol, 1));
+            } else {
+                array_push($symbols, $coin->symbol);
+            }
+        }
+        $symbols = array_unique($symbols);
+
+        $currency = 'USD'; // always store coins data in USD and convert to other currencies on demand
+        foreach (array_chunk($symbols, 50) as $i => $symbols_chunk) {
+            $requestUrl = sprintf(self::COINS_MARKET_DATA_URL, implode(',', $symbols_chunk), $currency);
+            $log[] = sprintf('%d. %s', ($i + 1), $requestUrl);
+            if ($response = $client->request('GET', $requestUrl)) {
+                if ($data = json_decode($response->getBody())) {
+                    if (!isset($data->Response) || $data->Response != 'Error') {
+                        foreach ($data->RAW as $symbol => $coin) {
+                            $log[] = $symbol;
+                            $updatedCoinsCount += Coin::updatePriceBySymbol($symbol, $coin->$currency->PRICE);
+                        }
+                    } else {
+                        $log[] = sprintf('Web request error: %s', $data->Message);
+                    }
+                }
+            } else {
+                $log[] = 'Empty response!';
+            }
+        }
+
+        if ($updatedCoinsCount) {
+            $log[] = "{$updatedCoinsCount} Coins were updated";
+        } else {
+            $log[] = 'No Coins were updated';
+        }
+        
+        $log[] = 'time:'.now();
+        $path = 'logs/CC/'.date('Y-m-d').'.json';
+        if (false == Storage::exists($path)) {
+            Storage::put($path, json_encode([$log]));
+        } else {
+            $logs = json_decode(Storage::get($path));
+            array_unshift($logs, $log);
+            Storage::put($path, json_encode($logs));
+        }
+    }
+}
+

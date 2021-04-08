@@ -1,0 +1,43 @@
+<?php
+
+namespace App\Mail;
+
+use Illuminate\Bus\Queueable;
+use Illuminate\Mail\Mailable;
+use Illuminate\Queue\SerializesModels;
+use Illuminate\Contracts\Queue\ShouldQueue;
+
+class EmailSupportReply extends Mailable
+{
+    use Queueable, SerializesModels;
+    protected $message;
+    protected $ticketId;
+
+    /**
+     * Create a new message instance.
+     *
+     * @return void
+     */
+    public function __construct($message, $ticketId)
+    {
+        $this->message=$message;
+        $this->ticketId=$ticketId;
+    }
+
+    /**
+     * Build the message.
+     *
+     * @return $this
+     */
+    public function build()
+    {
+        $email= $this->subject('Ticket #'.$this->ticketId.': Reply from support' )->markdown('emails.outside_ticket')->with([
+            'message' => $this->message,
+            'ticketId' => $this->ticketId,
+            'gAuthUrl' => null,
+        ]);
+
+        return $email;
+    }
+}
+

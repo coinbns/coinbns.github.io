@@ -1,0 +1,57 @@
+<?php
+
+namespace App\Models;
+
+use App\Models\Model;
+
+class CoinDetail extends Model
+{
+    //status
+    const DELETED=0;
+    const ACTIVE = 1;
+    const INACTIVE = 2;
+
+    protected $casts = [
+        'misc_data' => 'array',
+    ];
+
+    /*Create Queries Start*/
+    public static function createDetail($data)
+    {
+        $coinDetail = new self;
+
+        $coinDetail->coin_id = $data['coin_id'];
+        $coinDetail->level_1_max_trade_amount = $data['level_1_max_trade_amount'];
+        $coinDetail->trade_volume_to_reach_level_2 = $data['trade_volume_to_reach_level_2'];
+        $coinDetail->level_2_max_trade_amount = $data['level_2_max_trade_amount'];
+        $coinDetail->trade_volume_to_reach_level_3 = $data['trade_volume_to_reach_level_3'];
+        $coinDetail->level_3_max_trade_amount = $data['level_3_max_trade_amount'];
+        $coinDetail->trade_volume_to_reach_level_4 = $data['trade_volume_to_reach_level_4'];
+        $coinDetail->level_4_max_trade_amount = $data['level_4_max_trade_amount'];
+        $coinDetail->trade_volume_to_reach_level_5 = $data['trade_volume_to_reach_level_5'];
+        $coinDetail->level_5_max_trade_amount = $data['level_5_max_trade_amount'];
+        $coinDetail->max_ad_limit = $data['max_ad_limit'];
+        $coinDetail->trade_fee_percentage = $data['trade_fee_percentage'];
+        $coinDetail->featured_ad_trade_fee_percentage = $data['featured_ad_trade_fee_percentage'];
+        $coinDetail->merchant_fee_percentage = $data['merchant_fee_percentage'];
+        $coinDetail->withdrawal_fee = $data['withdrawal_fee'];
+        $coinDetail->bip_path_start = $data['bip_path_start'];
+        $coinDetail->broadcast_tx_url = $data['broadcast_tx_url'];
+        $coinDetail->broadcast_tx_key = $data['broadcast_tx_key'];
+        $coinDetail->script_type = $data['script_type'];
+        $coinDetail->misc_data = $data['misc_data'];
+        $coinDetail->status = $data['status'];
+
+        return $coinDetail->save();
+    }
+    /*Create Queries End*/
+
+
+    /*Find Queries Start*/
+    public static function findByCoinId($coinId)
+    {
+        return self::active()->where('coin_id', $coinId)->first();
+    }
+    /*Find Queries End*/
+}
+

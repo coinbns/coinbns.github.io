@@ -1,0 +1,61 @@
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use Illuminate\Http\Request;
+use App\Http\Controllers\Controller;
+use Auth;
+use Validator;
+use App\Models\WithdrawalRequest;
+use App\Models\Coin;
+
+class WithdrawalRequestController extends Controller
+{
+    public function viewRequestsByCoins(Request $request)
+    {
+        if ($request->method() == 'GET') {
+            return view('admin.withdrawal_requests.view_withdrawal_requests_by_coins')
+                ->with('coins', Coin::getCoins());
+        }
+
+        if ($request->method() == 'POST') {
+            $validator = Validator::make($request->all(), [
+                'coin_id' => 'required|numeric'
+            ]);
+            if ($validator->fails()) {
+                return response()->json(array(
+                    'success' => false,
+                    'message' => $validator->errors()->all(),
+                    'data' => []
+                ));
+            }
+            $withdrawalRequests = WithdrawalRequest::getUnprocessedUnapprovedRequests($request->coin_id);
+            if ($withdrawalRequests->count() > 0) {
+                return response()->json(array(
+                    'success' => true,
+                    'message' => 'Withdrawal requests found',
+                    'data' => $withdrawalRequests
+                ));
+            } else {
+                return response()->json(array(
+                    'success' => true,
+                    'message' => 'No withdrawal requests found',
+                    'data' => []
+                ));
+            }
+        }
+    }
+
+    public function approveWithdrawalRequest($requestId)
+    {
+        $request = WithdrawalRequest::find($requestId);
+        if (false == $request) {
+            abort(404);
+        } else {
+            $request->is_approved = WithdrawalRequest::APPROVED;
+            $request->save();
+            return redirect()->route('admin.withdrawal.requests');
+        }
+    }
+}
+

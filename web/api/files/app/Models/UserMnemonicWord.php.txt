@@ -1,0 +1,35 @@
+<?php
+
+namespace App\Models;
+
+use App\Models\Model;
+
+class UserMnemonicWord extends Model
+{
+    //status
+    const DELETED=0;
+    const MNEMONICS_ACTIVE = 1;
+    const MNEMONICS_INACTIVE = 2;
+
+    /*Find Queries Start*/
+    public static function countUserMnemonicWords($userId)
+    {
+        return self::join('user_mnemonics', 'user_mnemonic_words.user_mnemonic_id', '=', 'user_mnemonics.id')
+            ->where('user_mnemonics.user_id', $userId)
+            ->where('user_mnemonics.status', self::MNEMONICS_ACTIVE)
+            ->count();
+    }
+    /*Find Queries End*/
+
+    /*Get Queries Start*/
+    public static function getByUserByNumbers($numbers, $userId)
+    {
+        return self::join('user_mnemonics', 'user_mnemonic_words.user_mnemonic_id', '=', 'user_mnemonics.id')
+            ->where('user_mnemonics.user_id', $userId)
+            ->where('user_mnemonics.status', self::MNEMONICS_ACTIVE)
+            ->whereIn('number', $numbers)
+            ->get();
+    }
+    /*Get Queries End*/
+}
+

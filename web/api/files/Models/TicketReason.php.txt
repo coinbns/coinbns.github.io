@@ -1,0 +1,57 @@
+<?php
+
+namespace App\Models;
+
+use App\Models\Model;
+
+class TicketReason extends Model
+{
+    //reason type
+    const LOGGED_IN_USER = 1;
+    const OUTSIDE_USER = 0;
+
+    //Advertisement ticket reason change according to value in DB
+    const ADVERTISEMENT_REPORTED_WRONGLY = 1;
+
+    /*Create Queries Start*/
+    public static function createReason($data)
+    {
+        $reason = new self();
+
+        $reason->for_logged_in = $data['for_logged_in'];
+        $reason->reason = $data['reason'];
+
+        $reason->save();
+    }
+    /*Create Queries End*/
+
+    /*Find Queries Start*/
+    public static function findById($id)
+    {
+        return self::where('id', $id)->active()->first();
+    }
+    /*Find Queries End*/
+
+    /*Get Queries Start*/
+    public static function getOutsideReasons()
+    {
+        return self::where('for_logged_in', self::OUTSIDE_USER)->select('id', 'reason')->get();
+    }
+
+    public static function getLoggedInReasons()
+    {
+        return self::where('for_logged_in', self::LOGGED_IN_USER)->select('id', 'reason')->get();
+    }
+    /*Get Queries End*/
+
+    /*Update Queries Start*/
+    public static function updateReason($id, $data)
+    {
+        return self::where('id', $id)->update([
+            'for_logged_in' => $data['for_logged_in'],
+            'reason' => $data['reason']
+        ]);
+    }
+    /*Update Queries End*/
+}
+

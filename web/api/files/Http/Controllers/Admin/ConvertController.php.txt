@@ -1,0 +1,181 @@
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use Illuminate\Http\Request;
+use App\Http\Controllers\Controller;
+use App\Models\Coin;
+use App\Models\Currency;
+use Validator;
+
+class ConvertController extends Controller
+{
+    public function viewConvertCoinToCurrency()
+    {
+        return view('admin.convert.view_coin_to_currency')
+            ->with([
+                'coins'=>Coin::getCoins(),
+                'currencies'=>Currency::get()
+            ]);
+    }
+
+    public function convertCoinToCurrency(Request $request)
+    {
+        $validator = Validator::make($request->all(),[
+            'coin_amt' => 'required|numeric',
+            'coin_id' => 'required|numeric',
+            'currency_id' => 'required|numeric'
+        ]);
+        if ($validator->fails()) {
+            return response()->json(array('success' => false, 'errors' => $validator->errors()->all()));
+        }
+
+        $coinId=$request->coin_id;
+        $coinAmt=$request->coin_amt;
+        $currencyId=$request->currency_id;
+
+        //get price of the coin
+        $coin=Coin::findById($coinId);
+        $coinPrice=$coin->price;
+
+        //if the currency is USD then do normal conversion
+        $currency=Currency::findById($currencyId);
+        if($currency->symbol=='USD'){
+            $result=round($coinAmt*$coinPrice,8);
+            return response()->json(array('success' => true, 'coin_amt'=>$coinAmt, 'coin'=>$coin->symbol, 'currency'=>$currency->symbol, 'result' => $result));
+        }else{
+            //else get the currency equivalent rate to USD from db
+            $result=round($coinAmt*$coinPrice*$currency->rate,8);
+            return response()->json(array('success' => true, 'coin_amt'=>$coinAmt, 'coin'=>$coin->symbol, 'currency'=>$currency->symbol, 'result' => $result));
+        }
+
+    }
+
+    public function viewConvertCurrencyToCoin()
+    {
+        return view('admin.convert.view_currency_to_coin')
+            ->with([
+                'coins'=>Coin::getCoins(),
+                'currencies'=>Currency::get()
+            ]);
+    }
+
+    public function convertCurrencyToCoin(Request $request)
+    {
+        $validator = Validator::make($request->all(),[
+            'currency_amt' => 'required|numeric',
+            'coin_id' => 'required|numeric',
+            'currency_id' => 'required|numeric'
+        ]);
+        if ($validator->fails()) {
+            return response()->json(array('success' => false, 'errors' => $validator->errors()->all()));
+        }
+
+        $coinId=$request->coin_id;
+        $currencyAmt=$request->currency_amt;
+        $currencyId=$request->currency_id;
+
+        //get price of the coin
+        $coin=Coin::findById($coinId);
+        $coinPrice=$coin->price;
+
+
+        //convert currency to USD first
+        $currency=Currency::findById($currencyId);
+        if($currency->symbol=='USD'){
+            $result=round($currencyAmt/$coinPrice,8);
+            return response()->json(array('success' => true, 'currency_amt'=>$currencyAmt, 'coin'=>$coin->symbol, 'currency'=>$currency->symbol, 'result' => $result));
+        }else{
+            $currencyAmtInBaseCurrency=$currencyAmt/$currency->rate;
+            $result=round($currencyAmtInBaseCurrency/$coinPrice,8);
+            return response()->json(array('success' => true, 'currency_amt'=>$currencyAmt, 'coin'=>$coin->symbol, 'currency'=>$currency->symbol, 'result' => $result));
+        }
+
+    }
+
+    public function viewConvertCoinToCoin()
+    {
+        return view('admin.convert.view_coin_to_coin')
+            ->with([
+                'coins'=>Coin::getCoins()
+            ]);
+    }
+
+    public function convertCoinToCoin(Request $request)
+    {
+        $validator = Validator::make($request->all(),[
+            'coin_amt' => 'required|numeric',
+            'from_coin_id' => 'required|numeric',
+            'to_coin_id' => 'required|numeric'
+        ]);
+        if ($validator->fails()) {
+            return response()->json(array('success' => false, 'errors' => $validator->errors()->all()));
+        }
+
+        $fromCoinId=$request->from_coin_id;
+        $toCoinId=$request->to_coin_id;
+        $coinAmt=$request->coin_amt;
+
+        //get price of the coin
+        $coin=Coin::findById($fromCoinId);
+        $coinPrice=$coin->price;
+
+        $FromAmtInUsd=$coinPrice*$coinAmt;
+
+        $toCoinInUsd=Coin::findById($toCoinId);
+
+        $result=round($FromAmtInUsd/$toCoinInUsd->price,8);
+
+
+        return response()->json(array(
+            'success' => true,
+            'from_coin_symbol' => $coin->symbol,
+            'from_coin_amt' => $coinAmt,
+            'to_coin_symbol' => $toCoinInUsd->symbol,
+            'to_coin_amt' => $result
+        ));
+    }
+
+    public function viewConvertCurrencyToCurrency()
+    {
+        return view('admin.convert.view_currency_to_currency')
+            ->with([
+                'currencies'=>Currency::get()
+            ]);
+    }
+
+    public function convertCurrencyToCurrency(Request $request)
+    {
+        $validator = Validator::make($request->all(),[
+            'from_currency_amt' => 'required|numeric',
+            'from_currency_id' => 'required|numeric',
+            'to_currency_id' => 'required|numeric'
+        ]);
+        if ($validator->fails()) {
+            return response()->json(array('success' => false, 'errors' => $validator->errors()->all()));
+        }
+
+        $fromCurrencyAmt=$request->from_currency_amt;
+        $fromCurrencyId=$request->from_currency_id;
+        $toCurrencyId=$request->to_currency_id;
+
+        $fromCurrency=Currency::findById($fromCurrencyId);
+
+        $fromCurrencyAmtInUsd=$fromCurrencyAmt/$fromCurrency->rate;
+
+
+        $toCurrency=Currency::findById($toCurrencyId);
+
+        $result=round($toCurrency->rate*$fromCurrencyAmtInUsd,8);
+
+        return response()->json(array(
+            'success' => true,
+            'from_currency_symbol' => $fromCurrency->symbol,
+            'from_currency_amt' => $fromCurrencyAmt,
+            'to_currency_symbol' => $toCurrency->symbol,
+            'to_currency_amt' => $result
+        ));
+
+    }
+}
+

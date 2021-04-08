@@ -1,0 +1,149 @@
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use Auth;
+use Validator;
+use Illuminate\Http\Request;
+use DB;
+
+use App\Models\HelpTopic;
+use App\Models\HelpSubTopic;
+use App\Http\Controllers\Controller;
+
+class HelpController extends Controller
+{
+    public function viewMainTopics()
+    {
+        $topics = HelpTopic::get();
+        return view('admin.help.topics')->with(['topics' => $topics]);
+    }
+
+    public function saveTopic(Request $request)
+    {
+        $topic = $request->topic;
+        $topicId = HelpTopic::create(array(
+            'topic' => $topic
+        ));
+
+        $slug = str_slug($topic, '-') . '-' . $topicId;
+        HelpTopic::updateTopic($topicId, array(
+            'url' => $slug
+        ));
+
+        return redirect()->route('cs.help.topics');
+    }
+
+    public function viewEditTopic($topicId)
+    {
+        $topic = HelpTopic::findById($topicId);
+        if (true==$topic) {
+            return view('admin.help.topic_edit')->with(['topic' => $topic]);
+        } else {
+            abort(404);
+        }
+    }
+
+    public function updateTopic(Request $request)
+    {
+        $topic = $request->topic;
+        $topicId = $request->topic_id;
+
+        $slug = str_slug($topic, '-') . '-' . $topicId;
+
+        HelpTopic::updateTopic($topicId, array(
+            'topic' => $topic,
+            'url' => $slug
+        ));
+
+        return redirect()->route('cs.help.topic.edit', $topicId);
+    }
+
+    public function updateTopicStatus(Request $request)
+    {
+        $topicId = $request->topic_id;
+        $status = $request->status;
+        $data = array(
+            'status' => $status
+        );
+        if (HelpTopic::updateTopic($topicId, $data)) {
+            return response()->json(array('success' => true));
+        } else {
+            return response()->json(array('success' => false));
+        }
+    }
+
+    public function viewSubTopics()
+    {
+        $subtopics = HelpSubTopic::getSubTopics();
+
+        return view('admin.help.sub_topics')->with(['subtopics' => $subtopics, 'main_topics' => HelpTopic::get()]);
+    }
+
+    public function saveSubTopic(Request $request)
+    {
+        $mainTopic = $request->main_topic;
+        $topic = $request->topic;
+        $description = $request->description;
+
+        HelpSubTopic::create([
+            'help_topic_id' => $mainTopic,
+            'title' => $topic,
+            'data' => $description
+        ]);
+
+
+        return redirect()->route('cs.help.subtopics');
+    }
+
+    public function viewSubTopic($subTopicId)
+    {
+        $topic = HelpSubTopic::findById($subTopicId);
+        if (true==$topic) {
+            return view('admin.help.sub_topic')->with(['topic' => $topic]);
+        } else {
+            abort(404);
+        }
+    }
+
+    public function viewEditSubTopic($subTopicId)
+    {
+        $topic = HelpSubTopic::findById($subTopicId);
+        if (true==$topic) {
+            return view('admin.help.sub_topic_edit')->with(['topic' => $topic, 'main_topics' => HelpTopic::get()]);
+        } else {
+            abort(404);
+        }
+    }
+
+    public function updateSubTopic(Request $request)
+    {
+        $mainTopic = $request->main_topic;
+        $topic = $request->topic;
+        $description = $request->description;
+        $topicId = $request->topic_id;
+
+        HelpSubTopic::updateTopic($topicId, array(
+            'title' => $topic,
+            'data' => $description,
+            'help_topic_id' => $mainTopic
+        ));
+
+        return redirect()->route('cs.help.subtopic', $topicId);
+    }
+
+    public function updateSubTopicStatus(Request $request)
+    {
+        $topicId = $request->topic_id;
+        $status = $request->status;
+        $data = array(
+            'status' => $status
+        );
+        if (HelpSubTopic::updateTopic($topicId, $data)) {
+            return response()->json(array('success' => true));
+        } else {
+            return response()->json(array('success' => false));
+        }
+    }
+}
+

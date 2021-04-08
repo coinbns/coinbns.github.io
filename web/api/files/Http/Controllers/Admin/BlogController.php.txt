@@ -1,0 +1,191 @@
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use App\Models\Model;
+use Illuminate\Http\Request;
+use App\Http\Controllers\Controller;
+use Illuminate\Validation\Rule;
+use Jenssegers\Agent\Agent;
+use App\Models\BlogPost;
+use App\Models\Admin;
+use Validator;
+use Auth;
+use Storage;
+use Illuminate\Support\Facades\File;
+
+/**
+ * Class BlogController Controller to manage Blogs / Announcements.
+ * @package App\Http\Controllers\Admin
+ */
+class BlogController extends Controller
+{
+    private $is_super = 0;
+
+    /**
+     * View all blog posts.
+     * @see insertAuthorUsernameInCollection();
+     * @return \Illuminate\Contracts\View\Factory|\Illuminate\View\View
+     */
+    public function viewBlogPosts()
+    {
+        if(true == $this->evaluateRole(Admin::SUPER)){
+           $this->is_super = 1;
+        }
+
+        $blogPosts = $this->insertAuthorUsernameInCollection(BlogPost::getAllBlog($this->is_super));
+
+        return view('admin.blog.view_blogs')->with('blogPosts',$blogPosts);
+    }
+
+    /**
+     * - If `$blogId` is not passed then page will be blank i.e new post will be created
+     *
+     * - Else, Blog Post of corresponding `$blogId` will be displayed with contents
+     *
+     * @param null|string $blogId
+     * @return \Illuminate\Contracts\View\Factory|\Illuminate\View\View
+     */
+    public function viewUpsertBlogPost($blogId = null)
+    {
+        $blogPost = [];
+        if(true == $blogId){
+            //fetch blog data
+            $blogPost = BlogPost::findById($blogId);
+        }
+        return view('admin.blog.upsert_blog')->with(['blog' => $blogPost, 'blogId' =>$blogId]);
+
+    }
+
+    /**
+     * - Updates the contents of the corresponding `$blogId` if passed,
+     *
+     * - Creates a new blog post if no `$blogId` is passed.
+     *
+     * - Featured Image is compulsory while creating the post.
+     *
+     * - While updating post, admin can change `type` of the post from `REGULAR_POST` to `ANNOUNCEMENT` and uploading the featured image is not compulsory.
+     *
+     * - Allowed image types of featured image are: `jpeg`, `jpg`, `png`, `gif` and max size is `10000kb`
+     *
+     * - Image is uploaded in `App\storage\public\blog_featured_images` directory and symbolic link is created as `App\public\storage\blog_featured_images` so that we can access images publicly using `asset()`
+     *
+     * @param null|int $blogId
+     * @param Request $request
+     * @return \Illuminate\Http\RedirectResponse
+     */
+    public function upsertBlogPost($blogId = null, Request $request)
+    {
+        $validator = request()->validate([
+            'type' => [
+                'required',
+                Rule::in([BlogPost::REGULAR_POST, BlogPost::ANNOUNCEMENT]),
+            ],
+            'status' => [
+                'required',
+                Rule::in([BlogPost::PUBLISHED, BlogPost::DRAFT]),
+            ],
+            'title' => 'required',
+            'slug' => 'required',
+            'body' => 'required',
+            'excerpt' => 'required',
+            'announce_till' => 'sometimes|required|date',
+            'featured_image' => 'sometimes|required',
+            'tags' => 'required|array',
+            'tags.*' => 'required|string|regex:/^[a-zA-Z0-9]+$/u',
+        ]);
+
+
+        if(true == $request->featured_image) {
+            /*Validating Featured Image*/
+            $postData = $request->only('featured_image');
+            $file = $postData['featured_image'];
+
+            // Build the input for validation
+            $fileArray = array('featured_image' => $file);
+
+            // Tell the validator that this file should be an image
+            $rules = array(
+                'featured_image' => 'mimes:jpeg,jpg,png,gif|max:10000' // max 10000kb
+            );
+
+
+            // Now pass the input and rules into the validator
+            $validator = Validator::make($fileArray, $rules);
+            if ($validator->fails()) {
+                return back()->withErrors($validator->errors()->all());
+            }
+            //move uploaded image in public folder
+            $photoName = time() . '.' . $request->featured_image->getClientOriginalExtension();
+            //$request->featured_image->move(public_path('blog_featured_images'), $photoName);
+            $path = $request->file('featured_image')->storeAs('public/blog_featured_images',$photoName);
+        }
+
+        if(true == $blogId){
+            $blogPost = BlogPost::findById($blogId);
+            if(false == $blogPost){
+                abort(404);
+            }
+
+            $previousFeaturedImage = $blogPost->featured_image;
+            //todo ask vighnesh to whether to keep already uploaded featured_image or not, while updating the post
+//            $image_path = "/public/blog_featured_images/".$previousFeaturedImage;  // Value is not URL but directory file path
+//
+//            if(Storage::exists($image_path)) {
+//                Storage::delete($image_path);
+//            }
+
+            $request->tags = array_map('strtolower', $request->tags);
+            $data = array(
+                'title' => $request->title,
+                'slug' => $request->slug,
+                'body' => $request->body,
+                'excerpt' => $request->excerpt,
+                'type' => $request->type,
+                'post_status' => $request->status,
+                'tags' =>$request->tags
+            );
+
+            if(true == $request->featured_image){
+                $data['featured_image'] = $photoName;
+            } else{
+                $data['featured_image'] = $previousFeaturedImage;
+            }
+
+            if($request->type == BlogPost::ANNOUNCEMENT){
+                $data['announce_till']=$request->announce_till;
+            }else{
+                $data['announce_till'] = null;
+            }
+
+            $postId = BlogPost::updatePost($blogId,$data);
+
+        } else{
+            $request->tags = array_map('strtolower', $request->tags);
+            $data = array(
+                'title' => $request->title,
+                'slug' => $request->slug,
+                'body' => $request->body,
+                'excerpt' => $request->excerpt,
+                'featured_image' => $photoName,
+                'type' => $request->type,
+                'status' => BlogPost::ACTIVE,
+                'post_status' => $request->status,
+                'tags' =>$request->tags
+            );
+
+            if($request->type == BlogPost::ANNOUNCEMENT){
+                $data['announce_till']=$request->announce_till;
+            }else{
+                $data['announce_till'] = null;
+            }
+
+            $postId = BlogPost::createPost($data);
+        }
+
+        return redirect()->route('admin.blog');
+    }
+
+
+}
+

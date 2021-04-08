@@ -1,0 +1,49 @@
+<?php
+
+namespace App\Http\Middleware;
+
+use Closure;
+use GuzzleHttp\Client;
+use Validator;
+
+class GoogleRecaptcha
+{
+    /**
+     * Handle an incoming request.
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @param  \Closure  $next
+     * @return mixed
+     */
+    public function handle($request, Closure $next)
+    {
+        if(config('app.env')=='local'){
+            return $next($request);
+        }
+        $validator = Validator::make($request->all(), [
+            'google_recaptha_token' => 'required',
+        ]);
+        if ($validator->fails()) {
+            return response()->api(false, implode(', ', $validator->errors()->all()), null);
+        }
+
+        $client = new \GuzzleHttp\Client();
+
+        try {
+            $googleResponse = $client->request('POST', 'https://www.google.com/recaptcha/api/siteverify', ['form_params' => [
+                'response' => $request->google_recaptha_token,
+                'secret' => config('app.google_recaptha_secret'),
+            ]]);
+            $googleResponse = json_decode((string) $googleResponse->getBody());
+            if ($googleResponse->success == false) {
+                return response()->api(false, 'Captcha Failed', null);
+            }
+
+            return $next($request);
+
+        } catch (\Exception $e) {
+            return response()->api(false, 'Error while validating captcha', null);
+        }
+    }
+}
+

@@ -1,0 +1,38 @@
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use Illuminate\Http\Request;
+use App\Http\Controllers\Controller;
+use Storage;
+
+class NodejsonController extends Controller
+{
+
+    public function viewConfigJson()
+    {
+        if (Storage::disk('subscriber_data')->exists('config.json')) {
+            $file = Storage::disk('subscriber_data')->get('config.json');
+            return view('admin.node_json.viewJson')->with(['file' => $file, 'name' => 'Config Json']);
+        } else {
+            abort(404);
+        }
+    }
+
+    public function curlAllData()
+    {
+        $dataFiles = [];
+        $directories = Storage::disk('subscriber_data')->directories();
+
+        foreach ($directories as $directory) {
+            $dataFiles[$directory] = [];
+            foreach (Storage::disk('subscriber_data')->allFiles($directory) as $file) {
+                $fileName = str_replace($directory."/", "", $file);
+                $dataFiles[$directory][$fileName] = json_decode(Storage::disk('subscriber_data')->get($file));
+            }
+        }
+
+        return view('admin.node_json.viewCurlJson')->with(['result' => json_encode($dataFiles), 'name' => 'Subscribers Json']);
+    }
+}
+

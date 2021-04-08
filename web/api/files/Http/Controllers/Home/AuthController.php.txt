@@ -1,0 +1,764 @@
+<?php
+
+namespace App\Http\Controllers\Home;
+
+use DB;
+use Auth;
+use Validator;
+use App\Http\Controllers\Controller;
+use App\Mail\ForgotPassword;
+use App\Mail\VerifyRegistration;
+use App\Models\AuthorizationChallenge;
+use App\Models\Coin;
+use App\Models\Country;
+use App\Models\MobileOneTimePassword;
+use App\Models\OauthClient;
+use App\Models\OauthAccessToken;
+use App\Models\OauthRefreshToken;
+use App\Models\PasswordReset;
+use App\Models\UnregisteredUser;
+use App\Models\User;
+use App\Models\UserAccessLog;
+use App\Models\UserMnemonicWord;
+use App\Models\UserSecurityProfile;
+use App\Traits\PassportToken;
+use App\Models\Referral;
+use Illuminate\Foundation\Auth\ThrottlesLogins;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Mail;
+use Illuminate\Validation\Rule;
+use League\OAuth2\Server\CryptTrait;
+use Jenssegers\Agent\Agent;
+use PragmaRX\Google2FA\Google2FA;
+
+/**
+ * Class AuthController performs and handles all the operations for API such as:
+ *
+ * <li>Registration and Verify Registrations</li>
+ *
+ * <li>Login and Logout etc.</li>
+ *
+ * @package App\Http\Controllers\Home
+ */
+class AuthController extends Controller
+{
+    use ThrottlesLogins, PassportToken, CryptTrait;
+
+    protected $registrationPage = '/register/%s';
+    protected $forgotPasswordPage = '/password/verify/%s';
+    protected $loginPage = '/login';
+
+    /**
+     * User needs to provide its Email Address as Username and Password to get logged-in.
+     *
+     * <b>Authenticated by OAuth</b>
+     *
+     * <b>Checks if user is suspended</b>
+     *
+     * <b>User Access log is created</b>
+     *
+     * <b>Last Login is Updated</b>
+     *
+     * <b>Old Token are quarantined</b>
+     *
+     * <b>After login is successful, login is verified by the method user have choosen, check See Also</b>
+     *
+     * @see AuthController::verifyLogin()
+     *
+     * @param Request $request `username`  `password`  `client_id`  `client_secret`
+     * @return mixed
+     */
+    public function login(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'username' => 'required',
+            'password' => 'required',
+            'client_id' => 'required',
+            'client_secret' => 'required',
+        ]);
+        if ($validator->fails()) {
+            return response()->api(false, implode(', ', $validator->errors()->all()), null);
+        }
+
+        $client = OauthClient::findByIdBySecret($request->client_id, $request->client_secret);
+        if (true == empty($client)) {
+            return response()->api(false, 'The client credentials were incorrect', 'invalid_client');
+        }
+        if (false == Auth::attempt(['email' => $request->username, 'password' => $request->password, 'status' => 1])) {
+            return response()->api(false, 'The user credentials were incorrect', 'invalid_credentials');
+        }
+        if (Auth::user()->suspended_till != null
+            && false == now()->gt(Auth::user()->suspended_till)) {
+                return response()->api(false, 'The user is suspended till ' . now()->diffInMinutes(Auth::user()->suspended_till) . ' minutes', 'suspension');
+        }
+        $this->clearLoginAttempts($request);
+
+        // $verificationMethods = $vMethods = [];
+        // if (false == empty(Auth::user()->security_profile)) {
+        //     $vMethods = Auth::user()->security_profile->verification_methods;
+        //     $arrMethods = [];
+        //     foreach ($vMethods as $key => $vMethod) {
+        //         switch ($vMethod) {
+        //             case UserSecurityProfile::METHOD_MOBILE_OTP:
+        //                 $vdata = [
+        //                     'mobile_no' => str_repeat('*', strlen(Auth::user()->contact)/1.5).substr(Auth::user()->contact, strlen(Auth::user()->contact)/1.5)
+        //                 ];
+        //                 $arrMethods = [
+        //                     'method' => UserSecurityProfile::METHOD_MOBILE_OTP,
+        //                     'data' => $vdata
+        //                 ];
+
+        //                 array_push($verificationMethods,$arrMethods);
+        //                 break;
+        //             case UserSecurityProfile::METHOD_GOOGLE_AUTHENTICATOR:
+        //                 $arrMethods = [
+        //                     'method' => UserSecurityProfile::METHOD_GOOGLE_AUTHENTICATOR,
+        //                     'data' => []
+        //                 ];
+        //                 array_push($verificationMethods,$arrMethods);
+        //                 break;
+        //             default:
+        //                 $arrMethods = [
+        //                     'method' => 'UNKNOWN METHOD',
+        //                     'data' => []
+        //                 ];
+        //                 array_push($verificationMethods,$arrMethods);
+        //                 break;
+        //         }
+
+        //     }
+        // }
+
+        $agent = new Agent();
+        UserAccessLog::createLog([
+            'user_id' => Auth::id(),
+            'client_id' => $request->client_id,
+            'user_agent' => "{$agent->browser()}, {$agent->device()} on {$agent->platform()}",
+            'ip_address' => $request->ip(),
+            'access_type' => UserAccessLog::LOGIN,
+            // 'to_verify_login' => (count($verificationMethods) > 0) ? 1 : 0,
+            'to_verify_login' => (false == empty(Auth::user()->security_profile)) ? ((Auth::user()->security_profile->is_start_verification_complete != 0) ? 1 : 0) : 0,
+            'is_login_verified' => 0,
+            'verification_retry_count' => 0,
+            'to_verify_mnemonic' => 0,
+            'is_mnemonic_verified' => 0,
+            'status' => UserAccessLog::ACTIVE,
+        ]);
+        User::updateLastLogin(Auth::id());
+        $this->quarantineOldToken(Auth::id(), $request->client_id);
+        
+        // if ($vMethods == [UserSecurityProfile::METHOD_MOBILE_OTP]) {
+        //     $secret = mt_rand(100000, 999999);
+        //     $validityMinutes = 5;
+        //     MobileOneTimePassword::createOtp([
+        //         'user_id' => Auth::id(),
+        //         'contact' => Auth::user()->contact,
+        //         'type' => MobileOneTimePassword::LOGIN_VERIFICATION,
+        //         'secret' => $secret,
+        //         'valid_till' => now()->addMinutes($validityMinutes),
+        //         'created_at' => now(),
+        //         'status' => MobileOneTimePassword::ACTIVE,
+        //     ]);
+
+        //     sendMessage("{$secret} is valid for {$validityMinutes} minutes", Auth::user()->contact);
+        // }
+
+        $response = $this->getBearerTokenByUser(Auth::user(), $request->client_id, false);
+        // $response['verification_methods'] = $verificationMethods;
+        $response['to_verify_login'] = (false == empty(Auth::user()->security_profile)) ? ((Auth::user()->security_profile->is_start_verification_complete != 0) ? 1 : 0) : 0;
+
+        // return $response;
+        return response()->api(true, 'successfully logged in', $response);
+    }
+
+    /**
+     * used for overriding laravel's auth attempt function parameter.
+     * @return string
+     */
+    public function username()
+    {
+        return 'email';
+    }
+
+    /**
+     * Delete old OAuth Tokens
+     * @param integer $userId
+     * @param integer $clientId
+     */
+    private function quarantineOldToken($userId, $clientId, $mode = 'current')
+    {
+        switch ($mode) {
+            case 'current':
+                OauthAccessToken::deleteToken($userId, $clientId);
+                break;
+            case 'other':
+                OauthAccessToken::deleteOtherToken($userId, $clientId);
+                break;
+            case 'all':
+                OauthAccessToken::deleteAllToken($userId);
+                break;
+            default:
+                break;
+        }
+        // DB::delete("delete `oauth_access_tokens`, `oauth_refresh_tokens` from `oauth_access_tokens` inner join `oauth_refresh_tokens` on `oauth_refresh_tokens`.`access_token_id` = `oauth_access_tokens`.`id` where `oauth_access_tokens`.`user_id` = {$userId} and `oauth_access_tokens`.`client_id` = {$clientId}");
+    }
+
+    /**
+     * Make user to logout of the application
+     *
+     * <b>User Access log is created</b>
+     *
+     * <b>Old Token are quarantined</b>
+     *
+     * @param Request $request
+     * @return mixed
+     */
+    public function logout(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'type' => [
+                'sometimes',
+                Rule::in(['all', 'current', 'other']),
+            ],
+        ]);
+        if ($validator->fails()) {
+            return response()->api(false, implode(', ', $validator->errors()->all()), null);
+        }
+
+        // dd(Auth::user()->token()->client_id);
+        UserAccessLog::createLog([
+            'user_id' => Auth::id(),
+            'client_id' => Auth::user()->token()->client_id,
+            'user_agent' => $request->userAgent(),
+            'ip_address' => $request->ip(),
+            'access_type' => UserAccessLog::LOGOUT,
+            'to_verify_login' => null,
+            'is_login_verified' => null,
+            'verification_retry_count' => null,
+            'to_verify_mnemonic' => null,
+            'is_mnemonic_verified' => null,
+            'status' => UserAccessLog::ACTIVE,
+        ]);
+
+        $this->quarantineOldToken(Auth::id(), Auth::user()->token()->client_id, $request->type);
+
+        return response()->api(true, 'successfully logged out', []);
+    }
+
+    /**
+     * Make user register for the application
+     *
+     * <li>Checks if username is available</li>
+     *
+     * <li>Checks if email id is not present already</li>
+     *
+     * <li>Checks if the Country selected is Active</li>
+     *
+     * <li>An User is created as Unregistered, A verification link is sent to the email id provided </li>
+     * @see AuthController::verifyRegistrationCode()
+     * @param Request $request `username`, `email`, `country_id`
+     * @return mixed
+     */
+    public function register(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'username' => 'required',
+            'email' => 'required|email',
+            'country_id' => 'required',
+        ]);
+        if ($validator->fails()) {
+            return response()->api(false, implode(', ', $validator->errors()->all()), null);
+        }
+
+        if (false == empty(UnregisteredUser::findByUsername($request->username))) {
+            return response()->api(false, 'Username already exist', null);
+        }
+        if (false == empty(UnregisteredUser::findByEmail($request->email))) {
+            return response()->api(false, 'Email already exist', null);
+        }
+        if (true == empty(Country::findActiveCountry($request->country_id))) {
+            return response()->api(false, 'Country not found', null);
+        }
+
+        $codeValidityHours = 2;
+        $registrationCode = generateRandomString(20);
+
+        $userId = UnregisteredUser::createUser([
+            'username' => $request->username,
+            'email' => $request->email,
+            'country_id' => $request->country_id,
+            'registration_code' => $registrationCode,
+            'code_valid_till' => now()->addHours($codeValidityHours),
+            'is_registration_complete' => 0,
+            'status' => UnregisteredUser::ACTIVE,
+        ]);
+        
+        if ($request->to_send_mail ?? true) {
+            Mail::to($request->email)->queue(new VerifyRegistration(
+                $request->username,
+                config('app.url') . sprintf($this->registrationPage, $registrationCode),
+                $codeValidityHours
+            ));
+        }
+
+        if (false == empty($request->referrer_username)) {
+            $referrerUser = User::findByUsername($request->referrer_username);
+            $coin = Coin::findBySymbol($request->coin);
+            if (false == empty($referrerUser) && false == empty($coin)) {
+                
+                $referralMaxLimit = $coin->detail->misc_data['referralCoinLimit'] ?? Referral::REFERRAL_DEFAULT_AMOUNT;
+                $amountToCredit = ($referralMaxLimit * Referral::REFERRAL_PERCENTAGE) / 100;
+                Referral::createReferral([
+                    'unregistered_user_id' => $userId,
+                    'referrer_user_id' => $referrerUser->id,
+                    'coin_id' => $coin->id,
+                    'referred_user_id' => 0,//to be filled on registration completion
+                    'max_coin_treshold' => $referralMaxLimit,
+                    'amount_to_credit' => $amountToCredit,
+                    'referral_status' => Referral::USED,
+                    'status' => Referral::INACTIVE,//to be active on registration completion
+                ]);
+            }
+        }
+
+        return response()->api(true, 'Please check your mail for further details', $registrationCode);
+    }
+
+    /**
+     * Check if the username is already taken
+     * @param Request $request `username`
+     * @return true|false
+     */
+    public function checkUsername(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'username' => 'required',
+        ]);
+        if ($validator->fails()) {
+            return response()->api(false, implode(', ', $validator->errors()->all()), null);
+        }
+
+        if (false == empty(UnregisteredUser::findByUsername($request->username))) {
+            return response()->api(true, 'username exist', false);
+        }
+
+        return response()->api(true, 'username does not exist', true);
+    }
+
+    /**
+     * Verifies an unregistered user using the verification link sent to the email id provided
+     *
+     * <b>After successful verification, a page is displayed where user have to set the password</b>
+     *
+     * <b>Then go to Complete Registration</b>
+     *
+     * @see AuthController::completeRegistration()
+     *
+     * @param Request $request `code` A 20 characters Alphanumeric String
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function verifyRegistrationCode(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'code' => 'required',
+        ]);
+        if ($validator->fails()) {
+            return response()->api(false, implode(', ', $validator->errors()->all()), null);
+        }
+
+        $unregisteredUser = UnregisteredUser::findByCode($request->code);
+        if (true == empty($unregisteredUser)) {
+            return response()->json(['message' => 'Registration Code expired or does not exist'], 403);
+        }
+
+        return response()->api(true, 'Registration Code valid', $unregisteredUser->email);
+    }
+
+    /**
+     * Executed after the user has verified its email Id and set the password.
+     *
+     * <li>User is created in <b>users</b> table</li>
+     *
+     * <li><b>is_registration_complete</b> is set to <b>1</b> in <i>unregistered_users</i> table</li>
+     *
+     * <li>User is then redirected to Application's login screen</li>
+     *
+     * @see AuthController::verifyRegistrationCode()
+     * @param Request $request `code` `password`
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function completeRegistration(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'code' => 'required',
+            'password' => 'required',
+            'referral_username' => 'sometimes|string',
+        ]);
+        if ($validator->fails()) {
+            return response()->api(false, implode(', ', $validator->errors()->all()), null);
+        }
+        
+        $unregisteredUser = UnregisteredUser::findByCode($request->code);
+        if (true == empty($unregisteredUser)) {
+            return response()->json(['message' => 'Registration Code expired or does not exist'], 403);
+        }
+
+        $userId = User::createUser([
+            'username' => $unregisteredUser->username,
+            'email' => $unregisteredUser->email,
+            'name' => null,
+            'password' => bcrypt($request->password),
+            'country_id' => $unregisteredUser->country_id,
+            'contact' => null,
+            'is_kyc_approved' => 0,
+            'last_login' => now(),
+            'remember_token' => null,
+            'gauth_timestamp' => null,
+            'suspended_till' => null,
+            'status' => User::ACTIVE,
+        ]);
+
+        $unregisteredUser->is_registration_complete = 1;
+        $unregisteredUser->save();
+
+        $google2fa = new Google2FA();
+        $gAsecret = $google2fa->generateSecretKey();
+        UserSecurityProfile::createUserSecurityProfile([
+            'user_id' => $userId,
+            'is_contact_verified' => 0,
+            'is_mnemonic_generated' => 0,
+            'default_verification_method' => 0,
+            'fallback_verification_method' => 0,
+            'google_authenticator_secret' => $gAsecret,
+            'is_start_verification_complete' => 0,
+            'status' => UserSecurityProfile::ACTIVE,
+        ]);
+
+        $referral = Referral::findInactiveByUnregisteredUserId($unregisteredUser->id);
+        if (false == empty($referral)) {
+            $referral->referred_user_id = $userId;
+            $referral->status = Referral::ACTIVE;
+            $referral->save();
+        }
+
+        return response()->api(true, 'Registration complete', $unregisteredUser->email);
+    }
+
+    /**
+     * Used if user has forgot password.
+     *
+     * <li>Email id is checked whether available or not</li>
+     * <li>Check if user have already requested to reset the password in <b>password_resets</b> table</li>
+     * <li>An entry is created in password_resets table for the user</li>
+     * <li>Entry has the fields: token (25 chars random alphanumeric string), valid_till</li>
+     * <li>Email is sent to user with password reset link</li>
+     * @param Request $request `email`
+     * @return mixed
+     * @throws \Exception
+     */
+    public function forgotPassword(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'email' => 'required',
+        ]);
+        if ($validator->fails()) {
+            return response()->api(false, implode(', ', $validator->errors()->all()), null);
+        }
+
+        $user = User::findByEmail($request->email);
+        if (true == empty($user)) {
+            return response()->api(false, 'User not found', null);
+        }
+
+        $passwordReset = PasswordReset::findByUser($user->id);
+        if (false == empty($passwordReset)) {
+            if ($passwordReset->valid_till->gt(now())) {
+                return response()->api(true, 'Please check your mail for further instructions', null);
+            }
+            $passwordReset->status = PasswordReset::INACTIVE;
+            $passwordReset->save();
+        }
+
+        $token = generateRandomString(25);
+        $tokenValidityHours = 2;
+        PasswordReset::createPasswordReset([
+            'user_id' => $user->id,
+            'token' => $token,
+            'valid_till' => now()->addHours($tokenValidityHours),
+            'created_at' => now(),
+            'status' => PasswordReset::ACTIVE,
+        ]);
+
+        Mail::to($request->email)->queue(new ForgotPassword(
+            $user->username,
+            config('app.url') . sprintf($this->forgotPasswordPage, $token),
+            $tokenValidityHours
+        ));
+
+        return response()->api(true, 'Please check your mail for further details', null);
+    }
+
+    /**
+     * To verify token used for Password Reset
+     *
+     * <li>Check if token is active</li>
+     * <li>Check if token is under validity period</li>
+     *
+     * @param Request $request `token`
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function verifyPasswordResetToken(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'token' => 'required',
+        ]);
+        if ($validator->fails()) {
+            return response()->api(false, implode(', ', $validator->errors()->all()), null);
+        }
+
+        $passwordReset = PasswordReset::findByToken($request->token);
+        if (true == empty($passwordReset)
+            || now()->gt($passwordReset->valid_till)) {
+            return response()->json(['message' => 'Token expired or does not exist'], 403);
+        }
+
+        return response()->api(true, 'token is correct', ['id' => $passwordReset->user_id]);
+    }
+
+    /**
+     * Here password is reset/updated with new password by user.
+     * <li>Check if token is active</li>
+     * <li>Check if token is under validity period</li>
+     * <li>Update the password in users table</li>
+     * @param Request $request `token` `new_password`
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function resetPassword(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'token' => 'required',
+            'new_password' => 'required',
+        ]);
+        if ($validator->fails()) {
+            return response()->api(false, implode(', ', $validator->errors()->all()), null);
+        }
+
+        $passwordReset = PasswordReset::findByToken($request->token);
+        if (true == empty($passwordReset)
+            || now()->gt($passwordReset->valid_till)) {
+            return response()->json(['message' => 'Token expired or does not exist'], 403);
+        }
+
+        $challenge = AuthorizationChallenge::findValidPassedByUserIdByComplexity($passwordReset->user_id, AuthorizationChallenge::FORGET_PASSWORD_COMPLEXITY);
+        if (true == empty($challenge)) {
+            return response()->api(false, 'Challenge not completed', null);
+        }
+        
+        User::updatePassword(bcrypt($request->new_password), $passwordReset->user_id);
+        $passwordReset->status = PasswordReset::INACTIVE;
+        $passwordReset->save();
+
+        return response()->api(true, 'Password successfully changed', null);
+    }
+
+    /**
+     * To login, verification method and secret are verified.
+     *
+     * <li>find latest user access logs entry for type: login and client id</li>
+     *
+     * <b>For Method: Mobile OTP</b>
+     *
+     * <li>Find latest Mobile OTP for type: Login</li>
+     * <li>If OTP matches, set is_login_verified = 1</li>
+     * <li>Next check the mnemonics</li>
+     * <li>Create Authorization Challenge</li>
+     * <li>Set OTP status as Inactive</li>
+     * <li>If OTP not matched then increment the verification_retry_count by 1</li>
+     * <li>If verification_retry_count > 3 then set to_verify_mnemonic to 1</li>
+     *
+     * <b>For Method:  Google Authenticator</b>
+     *
+     * <li>Enter latest OTP generated in Google Authenticator App</li>
+     * <li>If OTP matches, set is_login_verified = 1</li>
+     * <li>Next check the mnemonics</li>
+     * <li>Create Authorization Challenge</li>
+     * <li>If OTP not matched then increment the verification_retry_count by 1</li>
+     * <li>If verification_retry_count > 3 then set to_verify_mnemonic to 1</li>
+     * @param Request $request `method` `secret`
+     * @return mixed
+     */
+    public function verifyLogin(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'method' => 'required',
+            'secret' => 'required',
+        ]);
+        if ($validator->fails()) {
+            return response()->api(false, implode(', ', $validator->errors()->all()), null);
+        }
+
+        $userAccessLog = UserAccessLog::findLatestByTypeByUserByClient(UserAccessLog::LOGIN, Auth::id(),
+            Auth::user()->token()->client_id);
+
+        switch ($request->method) {
+            case UserSecurityProfile::METHOD_MOBILE_OTP:
+                $otp = MobileOneTimePassword::findLatestValidByType(MobileOneTimePassword::LOGIN_VERIFICATION,
+                    Auth::id());
+
+                if (false == empty($otp)
+                    && $otp->secret == $request->secret) {
+                    $userAccessLog->is_login_verified = 1;
+                    $userAccessLog->save();
+
+                    $data = ['success' => true, 'to_verify_mnemonic' => 0];
+                    if ($userAccessLog->to_verify_mnemonic == 1) {
+                        $data['to_verify_mnemonic'] = 1;
+                        $complexity = AuthorizationChallenge::LOGIN_COMPLEXITY;
+                        $totalMnemonicWords = UserMnemonicWord::countUserMnemonicWords(Auth::id());
+                        if ($totalMnemonicWords == 0) {
+                            return response()->api(false, 'Mneumonic is not set', null);
+                        }
+                        $numbers = randomNumGenerator(1, $totalMnemonicWords + 1, $complexity);
+
+                        AuthorizationChallenge::createChallenge([
+                            'user_id' => Auth::id(),
+                            'numbers' => json_encode($numbers),
+                            'complexity' => $complexity,
+                            'challenge_status' => AuthorizationChallenge::PENDING,
+                            'retry_count' => 0,
+                            'valid_till' => null,
+                            'status' => AuthorizationChallenge::ACTIVE,
+                        ]);
+                        $data['numbers'] = $numbers;
+                        $data['complexity'] = $complexity;
+                    }
+                    $otp->status = MobileOneTimePassword::INACTIVE;
+                    $otp->save();
+
+                    return response()->api(true, 'Verification Success', $data);
+                } else {
+                    $userAccessLog->verification_retry_count = $userAccessLog->verification_retry_count + 1;
+                    if ($userAccessLog->verification_retry_count > 3) {
+                        $userAccessLog->to_verify_mnemonic = 1;
+                    }
+                    $userAccessLog->save();
+
+                    return response()->api(true, 'Incorrect otp.', ['success' => false]);
+                }
+
+                break;
+            case UserSecurityProfile::METHOD_GOOGLE_AUTHENTICATOR:
+                $google2fa = new Google2FA();
+                $timestamp = $google2fa->verifyKeyNewer(Auth::user()->security_profile->google_authenticator_secret,
+                    $request->secret, Auth::user()->gauth_timestamp, 0);
+
+                if ($timestamp !== false) {
+                    $userAccessLog->is_login_verified = 1;
+                    $userAccessLog->save();
+                    Auth::user()->gauth_timestamp = $timestamp;
+                    Auth::user()->save();
+
+                    $data = ['success' => true, 'to_verify_mnemonic' => 0];
+                    if ($userAccessLog->to_verify_mnemonic == 1) {
+                        $data['to_verify_mnemonic'] = 1;
+                        $complexity = AuthorizationChallenge::LOGIN_COMPLEXITY;
+                        $totalMnemonicWords = UserMnemonicWord::countUserMnemonicWords(Auth::id());
+                        if ($totalMnemonicWords == 0) {
+                            return response()->api(false, 'Mneumonic is not set', null);
+                        }
+                        $numbers = randomNumGenerator(1, $totalMnemonicWords + 1, $complexity);
+
+                        AuthorizationChallenge::createChallenge([
+                            'user_id' => Auth::id(),
+                            'numbers' => json_encode($numbers),
+                            'complexity' => $complexity,
+                            'challenge_status' => AuthorizationChallenge::PENDING,
+                            'retry_count' => 0,
+                            'valid_till' => null,
+                            'status' => AuthorizationChallenge::ACTIVE,
+                        ]);
+                        $data['numbers'] = $numbers;
+                        $data['complexity'] = $complexity;
+                    }
+
+                    return response()->api(true, 'Verification Success', $data);
+                } else {
+                    $userAccessLog->verification_retry_count = $userAccessLog->verification_retry_count + 1;
+                    if ($userAccessLog->verification_retry_count > 3) {
+                        $userAccessLog->to_verify_mnemonic = 1;
+                    }
+                    $userAccessLog->save();
+
+                    return response()->api(true, 'Verification failed', ['success' => false]);
+                }
+                break;
+            default:
+                return response()->api(false, 'No such verification method found', null);
+                break;
+        }
+    }
+
+    public function refreshToken(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'refresh_token' => 'required',
+            'client_id' => 'required',
+            'client_secret' => 'required',
+        ]);
+        if ($validator->fails()) {
+            return response()->api(false, implode(', ', $validator->errors()->all()), null);
+        }
+
+        $client = OauthClient::findByIdBySecret($request->client_id, $request->client_secret);
+        if (true == empty($client)) {
+            return response()->api(false, 'The client credentials were incorrect', 'invalid_client');
+        }
+
+        $this->setEncryptionKey(app('encrypter')->getKey());
+        $refreshToken = null;
+        try {
+            $refreshToken = $this->decrypt($request->refresh_token);
+        } catch (\Exception $e) {
+            return response()->api(false, $e->getMessage(), []);
+        }
+
+        $refreshTokenData = json_decode($refreshToken, true);
+        
+        if ($refreshTokenData['client_id'] !== $request->client_id) {
+            return response()->api(false, 'Refresh token is not linked to client', []);
+        }
+        
+        if ($refreshTokenData['expire_time'] < time()) {
+            return response()->api(false, 'Refresh token has expired', []);
+        }
+
+        $refreshToken = OauthRefreshToken::find($refreshTokenData['refresh_token_id']);
+        if (true == empty($refreshToken)) {
+            return response()->api(false, 'Refresh token not found', []);            
+        }
+
+        $user = User::find($refreshTokenData['user_id']);
+        
+        $this->quarantineOldToken($user->id, $request->client_id);
+        $response = $this->getBearerTokenByUser($user, $refreshTokenData['client_id'], false);
+
+        $agent = new Agent();
+        UserAccessLog::createLog([
+            'user_id' => Auth::id(),
+            'client_id' => $request->client_id,
+            'user_agent' => "{$agent->browser()}, {$agent->device()} on {$agent->platform()}",
+            'ip_address' => $request->ip(),
+            'access_type' => UserAccessLog::REFRESH_TOKEN,
+            // 'to_verify_login' => (count($verificationMethods) > 0) ? 1 : 0,
+            'to_verify_login' => 0,
+            'is_login_verified' => 0,
+            'verification_retry_count' => 0,
+            'to_verify_mnemonic' => 0,
+            'is_mnemonic_verified' => 0,
+            'status' => UserAccessLog::ACTIVE,
+        ]);
+        
+        return response()->api(true, 'successfully logged in', $response);
+    }
+}
+

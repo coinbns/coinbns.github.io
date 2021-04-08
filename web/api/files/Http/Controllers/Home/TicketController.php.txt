@@ -1,0 +1,411 @@
+<?php
+
+namespace App\Http\Controllers\Home;
+
+use App\Mail\EmailTicketOutsideSecurity;
+use App\Models\Admin;
+use App\Models\Advertisement;
+use App\Models\ReportedAdvertisement;
+use Illuminate\Http\Request;
+use App\Http\Controllers\Controller;
+use App\Models\TicketReason;
+use App\Models\TicketQuery;
+use App\Models\TicketReply;
+use Auth;
+use Validator;
+use Illuminate\Support\Facades\Mail;
+use PragmaRX\Google2FA\Google2FA;
+
+/**
+ * Manages Ticketing operations on api level / front level / end-user level
+ *
+ * Class TicketController
+ * @package App\Http\Controllers\Home
+ */
+class TicketController extends Controller
+{
+    /**
+     * A string is passed through this function having encoded ticket-id in between of two # (hash) symbol.
+     *
+     * e.g. "Hello these were my last tickets #a1b2c3d4e5" and #4h5j7uy5g6#, encoded ticked ids are enclosed in between two #.
+     *
+     * This function just converts the encoded ticket ids into human readable hyperlinks.
+     *
+     * @param string $string
+     * @return string
+     */
+    protected function hashReplacer($string)
+    {
+        preg_match('/#(.*?)#/', $string, $match);
+
+        if (false == $match) {
+            return $string;
+        } else {
+            $hashValue = $match[0];
+            $cleanValue = $match[1];
+
+            $decoded = $this->decodeHash($cleanValue);
+            if (is_string($decoded)) {
+                $convertedString = str_replace($hashValue, '<strong>[' . $cleanValue . ': ' . $decoded . ']</strong>',
+                    $string);
+            } else {
+
+                $convertedString = str_replace($hashValue,
+                    '<a href="' . config('app.url') . '/support/ticket/' . $cleanValue . '" target="_blank">' . $cleanValue . '</a>',
+                    $string);
+            }
+            return $this->hashReplacer($convertedString);
+        }
+    }
+
+    /**
+     * - This function is only available when admin reports a user's advertisement.
+     *
+     * - By default due to db seeder, ticket reason `ADVERTISEMENT_REPORTED_WRONGLY` is choosen for this type of ticket. Check if `ADVERTISEMENT_REPORTED_WRONGLY` is pointing to its corresponding reason or not.
+     *
+     * - A predefined question is set in http request and called `createLoggedInTicket()`
+     *
+     * @see App\Http\Controllers\Home\TicketController::createLoggedInTicket()
+     *
+     * @param int $advertisementId
+     * @param Request $request
+     * @return mixed
+     */
+    public function createAdvertisementTicket($advertisementId, Request $request)
+    {
+        $coin_id = $request->coin_id;
+        //check if user has this advertisement
+        $advertisement = Advertisement::getUserAdvertisement($coin_id, Auth::user()->id, $advertisementId);
+        if (false == $advertisement) {
+            return response()->api(false, 'Advertisement not found', null);
+        }
+        //check if the advertisement is reported by admin
+        if (false == ($advertisement->is_reported == Advertisement::REPORTED)) {
+            return response()->api(false, 'Advertisement is not reported yet, you can not raise a ticket', null);
+        }
+
+        if (true == ($advertisement->ticket_created == Advertisement::TICKET_CREATED)) {
+            return response()->api(false, 'A ticket is already raised for this Advertisement', null);
+        }
+        $advertisement->ticket_created = Advertisement::TICKET_CREATED;
+        $advertisement->save();
+
+        $ticket_reason_id = TicketReason:: ADVERTISEMENT_REPORTED_WRONGLY;
+        $question = "Hello, My :URL is reported wrongly. \n Please do the needful";
+        $question = strtr($question,
+            array(':URL' => '<a href="' . config('app.url') . '/ads/' . $advertisementId . '/reported' . '" target="_blank"> Advertisement ID: ' . $advertisementId . '</a>'));
+        $request->request->add(["ticket_reason_id" => $ticket_reason_id]);
+        $request->request->add(["question" => $question]);
+
+        return $this->createLoggedInTicket($request);
+    }
+
+    /**
+     * Here it is verified whether the user is logged in or from outside the application.
+     *
+     * @param Request $request
+     * @return mixed
+     * @throws \PragmaRX\Google2FA\Exceptions\InsecureCallException
+     */
+    public function createTicket(Request $request)
+    {
+        if (auth('api')->user() === null) {
+            return $this->createOutSideTicket($request);
+        } else {
+            return $this->createLoggedInTicket($request);
+        }
+    }
+
+    /**
+     * Used to create tickets for logged in users.
+     *
+     * @param Request $request
+     * @return mixed
+     */
+    public function createLoggedInTicket(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'ticket_reason_id' => 'required|exists:ticket_reasons,id',
+            'question' => 'required'
+        ]);
+        if ($validator->fails()) {
+            return response()->api(false, implode(', ', $validator->errors()->all()), null);
+        }
+
+        $ticketreasonId = $request->ticket_reason_id;
+        $ticketQuery = $request->question;
+        //$ticketQuery = $this->hashReplacer($ticketQuery);
+
+        $admin_id = Admin::findAvailableTicketManager()->id;
+
+        $queryId = TicketQuery::createQuery([
+            'ticket_reason_id' => $ticketreasonId,
+            'email_id' => null,
+            'user_id' => auth('api')->user()->id,
+            'read_at' => null,
+            'admin_id' => $admin_id,
+            'g_auth_secret' => null,
+            'g_auth_timestamp' => null
+        ]);
+
+        $queryReply = TicketReply::createReply([
+            'ticket_query_id' => $queryId,
+            'reply' => $ticketQuery,
+            'user_id' => auth('api')->user()->id,
+        ]);
+
+        return response()->api(true, 'Ticket submitted successfully', null);
+    }
+
+    /**
+     * Used to create ticket for outside users i.e users who are not logged in into application.
+     *
+     * - All the replies are sent over the user's email only.
+     *
+     * - To access tickets replies in web, user is provided a google authenticator qr code in mail body.
+     *
+     * @param Request $request
+     * @return mixed
+     * @throws \PragmaRX\Google2FA\Exceptions\InsecureCallException
+     */
+    public function createOutSideTicket(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'ticket_reason_id' => 'required|exists:ticket_reasons,id',
+            'email_id' => 'required|email',
+            'question' => 'required'
+        ]);
+        if ($validator->fails()) {
+            return response()->api(false, implode(', ', $validator->errors()->all()), null);
+        }
+
+        $ticketreasonId = $request->ticket_reason_id;
+        $emailId = $request->email_id;
+        $ticketQuery = $request->question;
+
+        //$ticketQuery = $this->hashReplacer($ticketQuery);
+
+
+        $google2fa = new Google2FA();
+        $gAsecret = $google2fa->generateSecretKey();
+        $google2fa->setAllowInsecureCallToGoogleApis(true);
+
+
+        $admin_id = Admin::findAvailableTicketManager()->id;
+
+        $queryId = TicketQuery::createQuery([
+            'ticket_reason_id' => $ticketreasonId,
+            'email_id' => $emailId,
+            'user_id' => null,
+            'admin_id' => $admin_id,
+            'g_auth_secret' => $gAsecret,
+            'g_auth_timestamp' => null
+        ]);
+
+        $google2faURL = $google2fa->getQRCodeGoogleUrl(
+            'Support #' . $queryId,
+            $emailId,
+            $gAsecret
+        );
+
+        $queryReply = TicketReply::createReply([
+            'ticket_query_id' => $queryId,
+            'reply' => $ticketQuery,
+            'user_id' => null,
+        ]);
+
+        $message = "Dear User.\n";
+        $message .= "We have received your question, this is your ticket ID:" . $queryId . "\n";
+        $message .= "Kindly scan the below QR code using Google Authenticator App to get the secret code to access this ticket for any updates.\n";
+
+        Mail::to($emailId)->queue(new EmailTicketOutsideSecurity(
+            $message,
+            $queryId,
+            $google2faURL
+        ));
+
+        return response()->api(true, 'Ticket submitted successfully', null);
+    }
+
+    /**
+     * Getting list of tickets raised by a logged in user.
+     *
+     * - `offset` and `limit` are optional.
+     *
+     * @param Request $request
+     * @return mixed
+     */
+    public function getTicketLists(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'offset' => 'sometimes|required|integer',
+            'limit' => 'sometimes|required|integer'
+        ]);
+        if ($validator->fails()) {
+            return response()->api(false, implode(', ', $validator->errors()->all()), null);
+        }
+        $offset = null;
+        $limit = null;
+
+        if (true == $request->offset) {
+            $offset = $request->offset;
+        }
+
+        if (true == $request->limit) {
+            $limit = $request->limit;
+        }
+
+        if (true == $offset && false == $limit) {
+            return response()->api(false, 'Please provide a limit also', null);
+        }
+
+        $userId = Auth::user()->id;
+        $tickets = TicketQuery::getTicketsByUserId($offset, $limit, $userId);
+
+        if (true == $tickets->isEmpty()) {
+            return response()->api(true, 'No Tickets found', []);
+        }
+
+
+        foreach ($tickets as $ticket) {
+            if ($ticket->ticket_status == TicketQuery::OPEN) {
+                $ticket->ticket_status = 'OPEN';
+            } else {
+                $ticket->ticket_status = 'CLOSED';
+            }
+        }
+
+        return response()->api(true, 'Tickets found', $tickets);
+    }
+
+    /**
+     * Used to view ticket by its ID.
+     *
+     * Since ticket can be viewed by logged in user as well as outside user, here we check user authentication.
+     *
+     * - If ticket was created by logged in user then there must be `user_id` otherwise `email` for outside user.
+     *
+     * - For outside user we check google authentication code before accessing ticket replies.
+     *
+     * - Ticket Read At field is updated on every replies where `readAt` is null.
+     *
+     * @param string|int $ticketId
+     * @param Request $request
+     * @return mixed
+     */
+    public function viewTicketById($ticketId, Request $request)
+    {
+        $ticket = TicketQuery::findTicketById($ticketId);
+
+        if (false == $ticket) {
+            return response()->api(false, 'Ticket not found', null);
+        }
+
+        if (false == $ticket->user_id) {
+            $validator = Validator::make($request->all(), [
+                'email' => 'required|email',
+                'token' => 'required|numeric'
+            ]);
+            if ($validator->fails()) {
+                return response()->json($validator->errors()->all(), 403);
+            }
+            $email = $request->email;
+            $token = $request->token;
+
+            $google2fa = new Google2FA();
+            $timestamp = $google2fa->verifyKeyNewer($ticket->g_auth_secret, $token, $ticket->g_auth_timestamp, 0);
+
+            if ((false == ($ticket->email_id == $email)) || (false == $timestamp)) {
+                return response()->json('Authentication Failed to access ticket', 403);
+            }
+        }
+        if (false == $ticket->email_id) {
+            if (auth('api')->user() === null) {
+                return response()->json('Ticket not available or You are not authorized to view this ticket', 403);
+            }
+            $readAt = TicketReply::readByUserAt($ticketId, auth('api')->user()->id);
+        }
+
+        if ($ticket->ticket_status == TicketQuery::OPEN) {
+            $ticket_status = 'OPEN';
+        } else {
+            $ticket_status = 'CLOSED';
+        }
+
+        $replies = TicketReply::getRepliesByTicketQueryId($ticketId);
+
+        foreach ($replies as $reply) {
+            $reply->reply = $this->hashReplacer($reply->reply);
+            if ($reply->user_id === TicketReply::OUTSIDE_USER) {
+                $reply->user = $ticket->email_id;
+            } elseif ($reply->user_id == TicketReply::CS) {
+                $reply->user = 'Support';
+            } else {
+                $reply->user = auth('api')->user()->username;
+            }
+        }
+
+        $ticketDetails = array(
+            'ticket_id' => $ticketId,
+            'ticket_reason' => $ticket->reason,
+            'ticket_status' => $ticket_status,
+            'ticket_updated_at' => date($ticket->updated_at),
+            'replies' => $replies
+        );
+
+        return response()->api(true, 'Ticket found', $ticketDetails);
+    }
+
+    /**
+     * To create reply to admin on a given ticket.
+     *
+     * @param string|int $ticketId
+     * @param Request $request
+     * @return mixed
+     */
+    public function replyToSupport($ticketId, Request $request)
+    {
+        $ticket = TicketQuery::findTicketById($ticketId);
+
+        if (false == $ticket) {
+            return response()->api(false, 'Ticket not found', null);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'reply' => 'required'
+        ]);
+        if ($validator->fails()) {
+            return response()->api(false, implode(', ', $validator->errors()->all()), null);
+        }
+
+        $ticketQuery = $request->reply;
+
+        //$ticketQuery = $this->hashReplacer($ticketQuery);
+
+        if (auth('api')->user() === null) {
+            //outsiders reply
+            $queryReply = TicketReply::createReply([
+                'ticket_query_id' => $ticketId,
+                'reply' => $ticketQuery,
+                'user_id' => null
+            ]);
+
+        } else {
+            //logged-in reply
+            $queryReply = TicketReply::createReply([
+                'ticket_query_id' => $ticketId,
+                'reply' => $ticketQuery,
+                'user_id' => auth('api')->user()->id
+            ]);
+        }
+        $ticket->touch();
+
+        $returnData = [
+            'reply' => $ticketQuery,
+            'updated_at' => date($ticket->updated_at)
+        ];
+
+        return response()->api(true, 'Reply submitted successfully', $returnData);
+    }
+}
+

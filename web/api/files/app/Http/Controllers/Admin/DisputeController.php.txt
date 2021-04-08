@@ -1,0 +1,539 @@
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use App\Events\DisputeChatMessage;
+use App\Events\DisputeChatMessageSeller;
+use App\Events\DisputeGuiltyFound;
+use App\Events\SendNotification;
+use Auth;
+use Validator;
+use Illuminate\Http\Request;
+use DB;
+use App\Models;
+use App\Models\Admin;
+use Illuminate\Foundation\Auth\AuthenticatesUsers;
+use App\Models\User;
+use App\Models\Dispute;
+use App\Models\DisputeChat;
+use App\Models\ChatMessage;
+use App\Models\WebrtcChat;
+use App\Models\DisputeChatMessage as ChatModel;
+use App\Models\DisputeScreenShare;
+use App\Models\Notification;
+use App\Models\DisputeReason;
+use App\Models\UserCoin;
+use App\Models\CoinDetail;
+use App\Models\Transaction;
+use App\Models\TransactionLog;
+use App\Models\Trade;
+use App\Notifications\DisputeChatNotification;
+use Illuminate\Support\Facades\Storage;
+use App\Http\Controllers\Controller;
+use App\Traits\PassportToken;
+
+
+class DisputeController extends Controller
+{
+
+    use PassportToken;
+
+    public function viewDispute()
+    {
+        /*
+         * check role,if role is Super then
+         * display all open disputes
+         */
+        if ($this->evaluateRole(Admin::SUPER)) {
+            $disputedData = Dispute::getOpenDisputes();
+        } else {
+            $disputedData = Dispute::getOpenDisputesByCsId();
+        }
+
+        return view('admin.dispute.dispute_ads')->with('disputed', $disputedData);
+    }
+
+    public function individualDispute($disputeId)
+    {
+        if (false == $this->evaluateRole(Admin::SUPER)) {
+            $adsDetails = Dispute::findDisputeFat($disputeId);
+        } else {
+            $adsDetails = Dispute::findDisputeFatSuper($disputeId);
+        }
+        if (false == empty($adsDetails)) {
+
+            $tradeId = $adsDetails->trade_id;
+            /*
+             * get trade chats history
+             */
+            $chatHistory = ChatMessage::getChatByTradeId(0, 20, $tradeId);
+
+            return view('admin.dispute.individual_dispute')
+                ->with([
+                    'advertisement' => $adsDetails,
+                    'chat_history' => $chatHistory
+                ]);
+        } else {
+            abort(404);
+        }
+    }
+
+    public function loadPreviousFiveChat(Request $request)
+    {
+        $lastId = $request->last_id;
+        $disputeId = $request->dispute_id;
+        $disputeChat = DisputeChat::getPreviousNChatByDisputeId($disputeId, $lastId, 5)->reverse();
+
+        if ($disputeChat->count() > 0) {
+            $returnHTML = view('admin.dispute.next_five_dispute_chat')->with('nextFive', $disputeChat)->render();
+            return response()->json(array('success' => true, 'html' => $returnHTML));
+        } else {
+            $returnHTML = view('admin.dispute.chat_not_available')->render();
+            return response()->json(array('success' => false, 'html' => $returnHTML));
+        }
+
+    }
+
+    public function closeDispute(Request $request)
+    {
+        $disputeId = $request->dispute_id;
+        $close_reason = $request->reason;
+        $disputeChat = Dispute::updateDisputeStatus($disputeId, $close_reason, 0);
+        return response()->json(array('success' => true));
+    }
+
+    public function viewDisputeChat($disputeId)
+    {
+        $dispute = Dispute::findOpenDisputeById($disputeId);
+
+        if (false == empty($dispute)) {
+            if (false == $this->evaluateRole(Admin::SUPER)) {
+                $disputeDetails = Dispute::findDisputeFat($disputeId);
+            } else {
+                $disputeDetails = Dispute::findDisputeFatSuper($disputeId);
+            }
+            $buyerId = $disputeDetails->buyer_id;
+            $sellerId = $disputeDetails->seller_id;
+            $guilty_user = $disputeDetails->guilty_user;
+            $guilty_description = $disputeDetails->guilt_description;
+
+//            $token = Auth::guard('admin')->user()->createToken('Personal', array('admin'))->accessToken;
+            $token = $this->getBearerTokenByAdmin(Auth::guard('admin')->user(), 3, false)['access_token'];
+            return view('admin.dispute.chat')->with([
+                'token' => $token,
+                'seller_id' => $sellerId,
+                'buyer_id' => $buyerId,
+                'dispute_id' => $disputeId,
+                'chats' => ChatModel::getChatMessagesByDisputeId($disputeId),
+                'guilty_user' => $guilty_user,
+                'guilty_description' => $guilty_description
+            ]);
+        } else {
+            abort(404);
+        }
+    }
+
+    public function disputeChatMessage(Request $request)
+    {
+        $disputeId = $request->dispute_id;
+        $userId = $request->user_id;
+        $message = $request->message;
+        $message_for = $request->message_for;
+
+        $ifDisputeOpen = Dispute::findOpenDisputeById($disputeId);
+
+        if (true == empty($ifDisputeOpen)) {
+            return response()->json(['message' => 'Open Dispute Not Found'], 403);
+        }
+
+        if (false == ChatModel::createChatMessage([
+                'dispute_id' => $disputeId,
+                'user_id' => $userId,
+                'type' => ChatModel::TYPE_TEXT,
+                'content' => $message,
+                'recipient_id' => $message_for,
+                'recipient_read_at' => null,
+                'created_at' => now()->toDateTimeString(),
+                'status' => ChatModel::ACTIVE,
+            ])) {
+            return response()->api(false, 'Error while storing message', null);
+        }
+
+        broadcast(new DisputeChatMessage($disputeId, $message, $message_for, ChatModel::TYPE_TEXT))->toOthers();
+
+        return response()->api(true, 'Successfully stored message and sent response', null);
+    }
+
+    public function concludeGuilty(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'user_guilty' => 'required|not_in:0',
+            'guilty_description' => 'required',
+            'buyerAmt' => 'sometimes|required',
+            'sellerCoin' => 'sometimes|required',
+        ]);
+        if ($validator->fails()) {
+            return redirect()
+                ->route('cs.dispute.chat', array('disputeId' => $request->disputeId))
+                ->withErrors($validator)
+                ->withInput();
+        }
+
+        if (false == $this->evaluateRole(Admin::SUPER)) {
+            $dispute_details = Dispute::findDisputeFat($request->disputeId);
+        } else {
+            $dispute_details = Dispute::findDisputeFatSuper($request->disputeId);
+        }
+        $guilty_user = '';
+
+        if ($dispute_details->buyer_id == $request->user_guilty) {
+            $guilty_user = 'BUYER';
+            broadcast(new DisputeGuiltyFound($request->disputeId, $dispute_details->buyer_id,
+                $request->guilty_description, 1))->toOthers();
+            broadcast(new DisputeGuiltyFound($request->disputeId, $dispute_details->seller_id,
+                $request->guilty_description, 0))->toOthers();
+        } else {
+            $guilty_user = 'SELLER';
+            broadcast(new DisputeGuiltyFound($request->disputeId, $dispute_details->buyer_id,
+                $request->guilty_description, 0))->toOthers();
+            broadcast(new DisputeGuiltyFound($request->disputeId, $dispute_details->seller_id,
+                $request->guilty_description, 1))->toOthers();
+        }
+        $this->makeTradeTransaction($dispute_details->coin_id, $dispute_details->currency_id, $request->buyerAmt,
+            $request->disputeId, $dispute_details->buyer_id, $dispute_details->seller_id);
+
+        $dispute = Dispute::findOpenDisputeById($request->disputeId);
+        $dispute->guilty = $guilty_user;
+        $dispute->guilty_user_id = $request->user_guilty;
+        $dispute->guilt_description = $request->guilty_description;
+        $dispute->dispute_status = Dispute::INACTIVE_DISPUTE;
+        $dispute->save();
+
+        $trade = Trade::find($dispute->trade_id);
+        $trade->trade_status = Trade::DISPUTE_CLOSED;
+        $trade->save();
+
+        $sellerCoins = UserCoin::findUserCoin($dispute_details->coin_id, $dispute_details->seller_id);
+        $sellerCompletedTradeCount = $sellerCoins->completed_trade_count + 1;
+        $sellerCoins->completed_trade_count = $sellerCompletedTradeCount;
+        $sellerCoins->save();
+
+        $buyerCoins = UserCoin::findUserCoin($dispute_details->coin_id, $dispute_details->buyer_id);
+        $buyerCompletedTradeCount = $buyerCoins->completed_trade_count + 1;
+        $buyerCoins->completed_trade_count = $buyerCompletedTradeCount;
+        $buyerCoins->save();
+
+        return redirect()->route('cs.dispute');
+    }
+
+    protected function makeTradeTransaction($coinId, $currencyId, $buyerAmt, $disputeId, $buyerId, $sellerId)
+    {
+        //find trade by disputeId
+        $trade = Dispute::findTradeByDisputeId($disputeId);
+        $tradeId = $trade->id;
+        $coin_value = $trade->coin_value;
+        $coin_original_value = $trade->coin_original_value;
+        $commision_value = $trade->commision_value;
+        $fiat_value = $trade->fiat_value;
+        $trade_margin_percentage = $trade->trade_margin_percentage;
+
+        //add coin value to buyer's wallet
+        $actual_coin_original_value = ($buyerAmt / $fiat_value) * $coin_original_value;
+
+        $trade_fee_percentage = CoinDetail::findByCoinId($coinId)->trade_fee_percentage;
+        $actual_commision_value = $actual_coin_original_value * ($trade_fee_percentage / 100);
+        $actual_coin_value = $actual_coin_original_value - $actual_commision_value;
+
+        $buyerTransactionId = Transaction::createTransaction([
+            'user_id' => $buyerId,
+            'coin_id' => $coinId,
+            'amount' => $actual_coin_value,
+            'public_address_id' => null,
+            'tx_id' => null,
+            'v_out' => null,
+            'trade_id' => $tradeId,
+            'type' => Transaction::TRADE,
+            'fees' => $actual_commision_value,
+            'is_transacted' => 1,
+            'is_stored' => 0,
+            'created_at' => now(),
+            'updated_at' => now(),
+            'status' => Transaction::ACTIVE,
+        ]);
+        $buyerBalance = Transaction::getBalance($coinId, $buyerId);
+        UserCoin::updateBalanceAndVolume($coinId, $buyerId, $buyerBalance, $actual_coin_value);
+
+        $sellerTransactionId = Transaction::createTransaction([
+            'user_id' => $sellerId,
+            'coin_id' => $coinId,
+            'amount' => -$actual_coin_original_value,
+            'public_address_id' => null,
+            'tx_id' => null,
+            'v_out' => null,
+            'trade_id' => $tradeId,
+            'type' => Transaction::TRADE,
+            'fees' => 0,
+            'is_transacted' => 1,
+            'is_stored' => 0,
+            'created_at' => now(),
+            'updated_at' => now(),
+            'status' => Transaction::ACTIVE,
+        ]);
+        $sellerBalance = Transaction::getBalance($coinId, $sellerId);
+        UserCoin::updateBalanceAndVolume($coinId, $sellerId, $sellerBalance, $actual_coin_original_value);
+
+        TransactionLog::insert([
+            [
+                'user_id' => $buyerId,
+                'transaction_id' => $buyerTransactionId,
+                'description' => "{$actual_coin_value} added to Buyer wallet against Dispute Id: #{$disputeId}",
+                'created_at' => now(),
+                'status' => TransactionLog::ACTIVE,
+            ],
+            [
+                'user_id' => $trade->seller_id,
+                'transaction_id' => $sellerTransactionId,
+                'description' => "{$actual_coin_value} deducted from Seller wallet against Dispute Id: #{$disputeId}",
+                'created_at' => now(),
+                'status' => TransactionLog::ACTIVE,
+            ],
+        ]);
+
+
+    }
+
+    public function viewUserScreen($disputeId, $userId)
+    {
+
+        $dispute = Dispute::findOpenDisputeById($disputeId);
+
+        if (false == empty($dispute)) {
+            $share_id = DisputeScreenShare::create(array(
+                'dispute_id' => $disputeId,
+                'user_id' => $userId,
+                'wrtc_url' => null
+            ));
+
+            return view('admin.dispute.user_screen_share')->with('shareId', $share_id);
+        } else {
+            abort(404);
+        }
+    }
+
+    public function setRtcUrl(Request $request)
+    {
+        DisputeScreenShare::updateUrlById($request->share_id, $request->private_url);
+        return response()->json(array('success' => true));
+    }
+
+    public function notifyUser(Request $request)
+    {
+        $disputeId = $request->dispute_id;
+        $tradeId = $request->trade_id;
+        $userId = $request->user_id;
+        if ((Dispute::findOpenDisputeById($disputeId)) != null) {
+
+            if (Dispute::checkCsAssignedToDisputeId($disputeId) != null) {
+                $message = sprintf(
+                    "Kindly come for the chat for the dispute ID: %u and trade ID: %u",
+                    $disputeId,
+                    $tradeId
+                );
+                $notifiable = User::find($userId);
+                $notifiable->notify(new DisputeChatNotification($tradeId, $disputeId, $message, $userId));
+                return response()->json(array('success' => true, 'message' => 'User Notified Successfully'));
+            } else {
+                return response()->json(array('success' => false, 'message' => 'You are not assigned to this dispute'));
+            }
+        } else {
+            return response()->json(array(
+                'success' => false,
+                'message' => 'This dispute may be closed or not Not Available'
+            ));
+        }
+
+
+    }
+
+    ############## Super Admin methods ###########
+
+    public function viewReasons()
+    {
+        return view('admin.dispute.reasons_list')->with('reasons', DisputeReason::get());
+    }
+
+    public function viewAddReason()
+    {
+        return view('admin.dispute.reasons_add');
+    }
+
+    public function addReason(Request $request)
+    {
+        $validator = request()->validate([
+            'type' => 'required|numeric',
+            'reason' => 'required|unique:dispute_reasons,reason',
+        ]);
+
+        $reason = DisputeReason::createReason(array(
+            'reason' => $request->reason,
+            'type' => $request->type,
+        ));
+
+        return redirect()->route('admin.dispute.reasons');
+    }
+
+    public function viewEditReason($reasonId)
+    {
+        $reason = DisputeReason::findById($reasonId);
+        if ($reason) {
+            return view('admin.dispute.reason_edit')->with(['reason' => $reason]);
+        } else {
+            abort(404);
+        }
+    }
+
+    public function updateReason(Request $request)
+    {
+        $validator = request()->validate([
+            'type' => 'required|numeric',
+            'reason' => 'required|unique:dispute_reasons,reason,' . $request->reason_id,
+        ]);
+
+        $reason = DisputeReason::updateReason($request->reason_id, array(
+            'reason' => $request->reason,
+            'type' => $request->type,
+        ));
+
+        return redirect()->route('admin.dispute.reasons');
+    }
+
+    /**
+     * Method to get count of open disputes to any assigned admin.
+     * If Admin is SUPER user the it will get all open disputes counts;
+     * otherwise it will get count of open disputes of assigned admin with permission `can-manage-disputes`
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function getDisputeCounts()
+    {
+        $adminId = Auth::guard('admin')->user()->id;
+        $count = 0;
+
+        if (Auth::guard('admin')->user()->roles[0]->name == Admin::SUPER) {
+            $count = Dispute::findOpenDisputeCountForAdmin();
+        } elseif (Auth::guard('admin')->user()->can('can-manage-disputes')) {
+            $count = Dispute::findOpenDisputeCountForAdmin($adminId);
+        }
+
+        return response()->json(array('success' => true, 'count' => $count));
+    }
+
+    //do not uncomment
+    /*public function deleteReason($reasonId){
+        $reason=DisputeReason::findById($reasonId);
+        if($reason){
+            DisputeReason::deleteById($reasonId);
+            return redirect()->route('admin.dispute.reasons');
+        }else{
+            abort(404);
+        }
+    }*/
+    ############# OLD METHODS ####################
+
+    public function addCsReply(Request $request)
+    {
+        $disputeId = $request->dispute_id;
+        $reply = $request->reply;
+
+        DisputeChat::addCsReply([
+            'dispute_id' => $disputeId,
+            'content' => $reply,
+            'type' => 1,
+            'sender' => 0
+        ]);
+        return response()->json(array('success' => true));
+    }
+
+    public function viewBuyerScreen($disputeId)
+    {
+        if (false == $this->evaluateRole(Admin::SUPER)) {
+            $disputeDetails = Dispute::findDisputeFat($disputeId);
+        } else {
+            $disputeDetails = Dispute::findDisputeFatSuper($disputeId);
+        }
+        if (false == empty($disputeDetails)) {
+
+            $userId = $disputeDetails->buyer_id;
+            /*
+             * set is_buyer_notified=1 in disputes table
+             */
+            Dispute::setBuyerNotification($disputeId);
+            //broadcast(new SendNotification($disputeId, 'http://127.0.0.1:8000/user/dispute/' . $disputeId, $userId))->toOthers();
+
+            $token = Auth::guard('admin')->user()->createToken('Token Name', array('admin'))->accessToken;
+
+            return view('admin.dispute.show_buyer_screen')->with([
+                'token' => $token,
+                'buyer_id' => $userId,
+                'dispute_id' => $disputeId
+            ]);
+        } else {
+            abort(404);
+        }
+    }
+
+    public function chatSendMessage(Request $request)
+    {
+        $disputeId = $request->dispute_id;
+        $userId = $request->user_id;
+        $message = $request->message;
+        $messageFrom = $request->message_from;
+
+        $ifDisputeOpen = Dispute::findOpenDisputeById($disputeId);
+
+        if (true == empty($ifDisputeOpen)) {
+            return response()->json(['message' => 'Not Found'], 403);
+        }
+
+        if (false == WebrtcChat::save_message([
+                'dispute_id' => $disputeId,
+                'user_id' => $userId,
+                'message' => $message,
+                'message_from' => $messageFrom
+            ])) {
+            return response()->api(false, 'Error while storing message', null);
+        }
+
+        broadcast(new DisputeChatMessage($disputeId, $message, $userId))->toOthers();
+
+        return response()->api(true, 'Successfully stored message and sent response', null);
+    }
+
+    public function viewSellerScreen($disputeId)
+    {
+        if (false == $this->evaluateRole(Admin::SUPER)) {
+            $disputeDetails = Dispute::findDisputeFat($disputeId);
+        } else {
+            $disputeDetails = Dispute::findDisputeFat($disputeId);
+        }
+        if (false == empty($disputeDetails)) {
+            $userId = $disputeDetails->seller_id;
+            /*
+             * set is_buyer_notified=1 in disputes table
+             */
+            Dispute::setSellerNotification($disputeId);
+            //broadcast(new SendNotification($disputeId, 'http://127.0.0.1:8000/user/dispute/' . $disputeId, $userId))->toOthers();
+
+            $token = Auth::guard('admin')->user()->createToken('Token Name', array('admin'))->accessToken;
+
+            return view('admin.dispute.show_seller_screen')->with([
+                'token' => $token,
+                'seller_id' => $userId,
+                'dispute_id' => $disputeId
+            ]);
+        } else {
+            abort(404);
+        }
+    }
+
+}
+

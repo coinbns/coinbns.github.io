@@ -1,0 +1,437 @@
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use Illuminate\Http\Request;
+use App\Http\Controllers\Controller;
+use Validator;
+use Jenssegers\Agent\Agent;
+use App\Models\EventLogger;
+use App\Models\Coin;
+
+class AnalyticsController extends Controller
+{
+    public function completedTrades()
+    {
+        $coins = Coin::getCoins();
+
+        //analytics for completed trades
+        $trades = EventLogger::getTrades(EventLogger::TRADE_COMPLETE)->toArray();
+        $arrTrades = [];
+        foreach ($trades as $value) {
+            $is_same_country = EventLogger::checkSameCountry($value->_id->advertisement_id)->same_country;
+            if (true == $is_same_country) {
+                $same_country = 'Same_Country';
+            } else {
+                $same_country = 'Different_Country';
+            }
+            $arrTrades[] = [
+                'ad_id' => $value->_id->advertisement_id,
+                'country' => $value->_id->country,
+                'state' => $value->_id->state,
+                'count' => $value->count,
+                'same_country' => $same_country
+            ];
+        }
+
+        $byLocationByCountry = collect($arrTrades)->groupBy('same_country')->transform(function ($item, $k) {
+            return $item->groupBy('country');
+        });
+
+
+        $locationCatSeries = [];
+        foreach ($byLocationByCountry as $cKey => $cValue) {
+            $countryArr = [];
+
+            foreach ($cValue->toArray() as $ck => $cv) {
+                $countryName = $ck;
+                $ccount = 0;
+                foreach ($cv as $cvv) {
+                    $ccount += $cvv['count'];
+                }
+
+                $countryArr[] = [
+                    'name' => $countryName,
+                    'y' => $ccount,
+                    'drilldown' => $countryName . '-' . $cKey
+                ];
+            }
+
+            $locationCatSeries[] = [
+                'name' => $cKey,
+                'data' => $countryArr
+            ];
+
+        }
+
+        $locationDrillSeries = [];
+        $byCountryByLocation = collect($arrTrades)->groupBy('country')->transform(function ($item, $k) {
+            return $item->groupBy('same_country');
+        });
+
+        //dd($byCountryByLocation);
+
+        foreach ($byCountryByLocation as $cbKey => $cbValue) {
+            $countryName = $cbKey;
+
+            foreach ($cbValue->toArray() as $cbk => $cbv) {
+                $locationName = $cbk;
+                $stateData = [];
+                foreach ($cbv as $sk => $sv) {
+
+                    $stateData[] = [
+                        'state' => $sv['state'],
+                        'count' => $sv['count']
+                    ];
+                }
+
+                $stateGroup = collect($stateData)->groupBy('state');
+
+                $count = 0;
+                $data = [];
+                foreach ($stateGroup as $kk => $vv) {
+                    foreach ($vv as $v3) {
+                        $count += $v3['count'];
+                    }
+                    $data[] = [
+                        $kk,
+                        $count
+                    ];
+                }
+
+
+                $locationDrillSeries[] = [
+                    'name' => $locationName,
+                    'id' => $countryName . '-' . $locationName,
+                    'data' => $data
+                ];
+            }
+
+        }
+
+        return view('admin.analytics.completed_trades')->with([
+            'catSeries' => json_encode($locationCatSeries),
+            'drillSeries' => json_encode($locationDrillSeries),
+            'coins' => $coins
+        ]);
+
+    }
+
+    public function completedTradesByCoin($coinId, Request $request)
+    {
+        $coinSymbol = Coin::findById($coinId)->symbol;
+        $trades = EventLogger::getAvgTradesByCountryByCoinId($coinId, EventLogger::TRADE_COMPLETE)->toArray();
+
+        if (true == empty($trades)) {
+            return response()->json([
+                'status' => false,
+                'message' => 'No Data Found',
+            ]);
+        }
+
+        $arrTrades = [
+            'name' => 'Average',
+            'colorByPoint' => true,
+        ];
+        foreach ($trades as $value) {
+            $arrTrades['data'][] = [
+                'name' => $value->_id->country,
+                'y' => $value->coin_total_value,
+                'drilldown' => $value->_id->country,
+            ];
+        }
+
+        //dd($arrTrades);
+
+        $stateDrillSeries = [];
+
+        $totalTrade = EventLogger::getTradesByCountryByStateByCoinId($coinId, EventLogger::TRADE_COMPLETE)->toArray();
+        $arrTotalTrade = [];
+
+        foreach ($totalTrade as $value) {
+            $arrTotalTrade[] = [
+                'country' => $value->_id->country,
+                'state' => $value->_id->state,
+                'coin_total_value' => $value->coin_total_value,
+            ];
+        }
+
+
+        $byCountryByState = collect($arrTotalTrade)->groupBy('country')->transform(function ($item, $k) {
+            return $item->groupBy('state');
+        });
+
+        /*[
+            {
+                "name": "Chrome",
+                "id": "Chrome",
+                "data": [
+                [
+                    "v65.0",
+                    0.1
+                ],
+            ]
+            }
+        ]*/
+
+        //dd($byCountryByState);
+
+        foreach ($byCountryByState as $country => $cValue) {
+            $stateData = [];
+            foreach ($cValue as $state => $sValue) {
+                $stateData[] = [
+                    $state,
+                    $sValue[0]['coin_total_value']
+                ];
+            }
+            $stateDrillSeries[] = [
+                'name' => $country,
+                'id' => $country,
+                'data' => $stateData
+            ];
+        }
+
+        //dd($stateDrillSeries);
+
+
+        return response()->json([
+            'status' => true,
+            'catSeries' => $arrTrades,
+            'drillSeries' => $stateDrillSeries,
+            'coinSymbol' => $coinSymbol
+        ]);
+    }
+
+    public function tradesSummary()
+    {
+        $coins = Coin::getCoins();
+        return view('admin.analytics.trades_summary', ['coins' => $coins]);
+    }
+
+    public function tradesSummaryByCoin($coinId, Request $request)
+    {
+        $coinSymbol = Coin::findById($coinId)->symbol;
+        $arrTotalTrade = [];
+        $allTradesSeries = [];
+        $allTradesDrillSeries = [];
+
+        $tradesCreated = EventLogger::getTradesByCountryByStateByCoinId($coinId, EventLogger::AD_RESPOND)->toArray();
+
+        if (true == empty($tradesCreated)) {
+//            return response()->json([
+//                'status'=>false,
+//                'message'=>'No Data Found For All Trades',
+//            ]);
+            goto ProcessCancelledTrades;
+        }
+
+        $allTradesSeries = [
+            'name' => 'Total Trades Created',
+            'colorByPoint' => true,
+        ];
+        foreach ($tradesCreated as $value) {
+            $allTradesSeries['data'][] = [
+                'name' => $value->_id->country,
+                'y' => $value->total_count,
+                'drilldown' => $value->_id->country,
+            ];
+
+            $arrTotalTrade[] = [
+                'country' => $value->_id->country,
+                'state' => $value->_id->state,
+                'total_count' => $value->total_count,
+            ];
+        }
+
+
+        $byCountryByState = collect($arrTotalTrade)->groupBy('country')->transform(function ($item, $k) {
+            return $item->groupBy('state');
+        })->toArray();
+
+
+        foreach ($byCountryByState as $country => $cValue) {
+            $stateData = [];
+            foreach ($cValue as $state => $sValue) {
+                $stateData[] = [
+                    $state,
+                    $sValue[0]['total_count']
+                ];
+            }
+            $allTradesDrillSeries[] = [
+                'name' => $country,
+                'id' => $country,
+                'data' => $stateData
+            ];
+        }
+
+        ProcessCancelledTrades:
+        ############ Cancelled Trades ##################
+        $cancelledTradesSeries = [];
+        $cancelledTradesDrillSeries = [];
+
+        $arrTotalCancelledTrade = [];
+
+        $tradesCancelled = EventLogger::getTradesByCountryByStateByCoinId($coinId, EventLogger::TRADE_CANCEL)->toArray();
+
+        if (true == empty($tradesCancelled)) {
+            goto ProcessResponse;
+        }
+
+        $cancelledTradesSeries = [
+            'name' => 'Total Trades Cancelled',
+            'colorByPoint' => true,
+        ];
+        foreach ($tradesCancelled as $value) {
+            $cancelledTradesSeries['data'][] = [
+                'name' => $value->_id->country,
+                'y' => $value->total_count,
+                'drilldown' => $value->_id->country,
+            ];
+
+            $arrTotalCancelledTrade[] = [
+                'country' => $value->_id->country,
+                'state' => $value->_id->state,
+                'total_count' => $value->total_count,
+            ];
+        }
+
+
+        $byCountryByState = collect($arrTotalCancelledTrade)->groupBy('country')->transform(function ($item, $k) {
+            return $item->groupBy('state');
+        })->toArray();
+
+
+        foreach ($byCountryByState as $country => $cValue) {
+            $stateData = [];
+            foreach ($cValue as $state => $sValue) {
+                $stateData[] = [
+                    $state,
+                    $sValue[0]['total_count']
+                ];
+            }
+            $cancelledTradesDrillSeries[] = [
+                'name' => $country,
+                'id' => $country,
+                'data' => $stateData
+            ];
+        }
+
+        ProcessResponse:
+        return response()->json([
+            'status' => true,
+            'allTradesSeries' => $allTradesSeries,
+            'allTradesDrillSeries' => $allTradesDrillSeries,
+            'cancelledTradesSeries' => $cancelledTradesSeries,
+            'cancelledTradesDrillSeries' => $cancelledTradesDrillSeries,
+            'coinSymbol' => $coinSymbol
+        ]);
+    }
+
+    public function reportedAdvertisements()
+    {
+        $coins = EventLogger::getCoinsOfReportedAds()->toArray();
+        $coinsArray = [];
+
+        foreach ($coins as $coin) {
+            $symbol = Coin::findById($coin->_id->coin_id)->symbol;
+            $coinsArray[] = array(
+                'coin_id' => $coin->_id->coin_id,
+                'symbol' => $symbol
+            );
+        }
+
+        $coinCountry = [];
+        $reportedAdsByCoins = EventLogger::getReportedAdsByCoins()->toArray();
+        foreach ($reportedAdsByCoins as $ads_by_coin) {
+            foreach ($coinsArray as $key => $value) {
+
+                if ($value['coin_id'] == $ads_by_coin->_id->coin_id) {
+                    $ads_by_coin->_id->symbol = $value['symbol'];
+                }
+            }
+
+            $coinCountry[] = [
+                'symbol' => $ads_by_coin->_id->symbol,
+                'country' => $ads_by_coin->_id->country,
+                'state' => $ads_by_coin->_id->state,
+                'count' => $ads_by_coin->total_count
+            ];
+        }
+
+        $byCoinByCountry = collect($coinCountry)->groupBy('symbol')->transform(function ($item, $k) {
+            return $item->groupBy('country');
+        });
+
+        $catSeries = [];
+        $drillSeries = [];
+
+        foreach ($byCoinByCountry as $cKey => $cValue) {
+            $countryArr = [];
+
+            foreach ($cValue->toArray() as $ck => $cv) {
+                $countryName = $ck;
+                $ccount = 0;
+                foreach ($cv as $cvv) {
+                    $ccount += $cvv['count'];
+                }
+
+                $countryArr[] = [
+                    'name' => $countryName,
+                    'y' => $ccount,
+                    'drilldown' => $countryName . '-' . $cKey
+                ];
+            }
+
+            $catSeries[] = [
+                'name' => $cKey,
+                'data' => $countryArr
+            ];
+
+        }
+
+        $byCountryByCoin = collect($coinCountry)->groupBy('country')->transform(function ($item, $k) {
+            return $item->groupBy('symbol');
+        });
+
+        foreach ($byCountryByCoin as $cbKey => $cbValue) {
+            $countryName = $cbKey;
+
+            foreach ($cbValue->toArray() as $cbk => $cbv) {
+                $coinSymbol = $cbk;
+                $stateData = [];
+                foreach ($cbv as $sk => $sv) {
+                    $stateData[] = [
+                        'state' => $sv['state'],
+                        'count' => $sv['count']
+                    ];
+                }
+                $stateGroup = collect($stateData)->groupBy('state');
+
+                $count = 0;
+                $data = [];
+                foreach ($stateGroup as $kk => $vv) {
+                    foreach ($vv as $v3) {
+                        $count += $v3['count'];
+                    }
+                    $data[] = [
+                        $kk,
+                        $count
+                    ];
+                }
+
+                $drillSeries[] = [
+                    'name' => $coinSymbol,
+                    'id' => $countryName . '-' . $coinSymbol,
+                    'data' => $data
+                ];
+            }
+
+        }
+
+        return view('admin.analytics.reported_advertisements')->with([
+            'catSeries' => json_encode($catSeries),
+            'drillSeries' => json_encode($drillSeries),
+        ]);
+    }
+}
+

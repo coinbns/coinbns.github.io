@@ -1,0 +1,384 @@
+<?php
+
+namespace App\Http\Controllers\Home;
+
+use App\Http\Controllers\Controller;
+use App\Models\AuthorizationChallenge;
+use App\Models\MobileOneTimePassword;
+use App\Models\User;
+use App\Models\UserMnemonic;
+use App\Models\UserMnemonicWord;
+use App\Models\UserSecurityProfile;
+use App\Notifications\Otp;
+use Auth;
+use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
+use PragmaRX\Google2FA\Google2FA;
+use Validator;
+
+/**
+ * Class ProfileSecurityContoller used to manage a user's security profile which includes:
+ *
+ * -Contact number
+ *
+ * -Mnemonics
+ *
+ * -Passwords
+ *
+ * -Google Authentication
+ *
+ * -Mobile one time passwords (M-OTP)
+ *
+ * @package App\Http\Controllers\Home
+ */
+class ProfileSecurityContoller extends Controller
+{
+    /**
+     * User needs to provide contact number and it is compulsory to identify user with contact number too.
+     *
+     * -If a number is already used by someone then give error message else
+     *
+     * -To verify contact number, an OTP is sent over this number and user will input it and gets verified in another api call.
+     *
+     * @see \App\Http\Controllers\Home\ProfileSecurityContoller::verifyContactNo() verify contact number here
+     *
+     * @param Request $request
+     * @return mixed
+     */
+    public function submitContactNo(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'contact' => 'required',
+        ]);
+        if ($validator->fails()) {
+            return response()->api(false, implode(', ', $validator->errors()->all()), null);
+        }
+
+        //check if mobile number is associated with any other than this user
+        $mobileExist = User::findByMobile($request->contact, Auth::id());
+
+        if (false == empty($mobileExist)) {
+
+            return response()->api(false, "{$request->contact} is already associated with another user", null);
+        }
+
+        $secret = mt_rand(100000, 999999);
+        $validityMinutes = 5;
+        MobileOneTimePassword::createOtp([
+            'user_id' => Auth::id(),
+            'contact' => $request->contact,
+            'type' => MobileOneTimePassword::MOBILE_VERIFICATION,
+            'secret' => $secret,
+            'valid_till' => now()->addMinutes($validityMinutes),
+            'created_at' => now(),
+            'status' => MobileOneTimePassword::ACTIVE,
+        ]);
+
+        $content = "{$secret} is valid for {$validityMinutes} minutes";
+        Auth::user()->contact = $request->contact;
+        Auth::user()->notify(new Otp($content));
+
+        return response()->api(true, "OTP sent", null);
+    }
+
+    /**
+     * After user inputs contact number one OTP is sent to his mobile.
+     *
+     * User inputs the OTP here and verifies.
+     *
+     * @param Request $request
+     * @return mixed
+     */
+    public function verifyContactNo(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'secret' => 'required',
+        ]);
+        if ($validator->fails()) {
+            return response()->api(false, implode(', ', $validator->errors()->all()), null);
+        }
+
+        $otp = MobileOneTimePassword::findLatestValidByType(MobileOneTimePassword::MOBILE_VERIFICATION, Auth::id());
+        if (true == empty($otp)) {
+            return response()->api(false, 'Incorrect otp.', null);
+        }
+        if ($otp->secret != $request->secret) {
+            return response()->api(false, 'Incorrect otp', null);
+        }
+        $otp->status = MobileOneTimePassword::INACTIVE;
+        $otp->save();
+
+        Auth::user()->contact = $otp->contact;
+        Auth::user()->save();
+
+        $userSecurityProfile = Auth::user()->security_profile;
+        $userSecurityProfile->is_contact_verified = 1;
+        if ($userSecurityProfile->is_contact_verified == 1
+            && $userSecurityProfile->default_verification_method != 0) {
+            $userSecurityProfile->is_start_verification_complete = 1;
+        }
+        $userSecurityProfile->save();
+
+        return response()->api(true, 'Contact Verified successfully', null);
+    }
+
+    /**
+     * used to create Mnemonic words
+     *
+     * -if mnemonics are already generated then give error.
+     *
+     * -12 mnemonics words are extracted from `password_dictionary.json` from storage and
+     * placed at a particular index one by one.
+     *
+     * @param Request $request
+     * @return mixed
+     */
+    public function createMnemonic(Request $request)
+    {
+        if (1 == Auth::user()->security_profile->is_mnemonic_generated) {
+            return response()->api(false, 'Mnemonic already created', null);
+        }
+
+        if (false == empty(Auth::user()->mnemonic)) {
+            Auth::user()->mnemonic->status = UserMnemonic::INACTIVE;
+            Auth::user()->mnemonic->save();
+        }
+
+        $userMnemonicId = UserMnemonic::createUserMnemonic([
+            'user_id' => Auth::id(),
+            'status' => UserMnemonic::ACTIVE,
+        ]);
+
+        $mnemonic = $userMnemonicWords = [];
+        $dictionary = json_decode(file_get_contents(storage_path('password_dictionary.json')));
+        $dictionaryWordCount = count($dictionary);
+        for ($i = 0; $i < config('app.mnemonic_limit'); $i++) {
+            $word = $dictionary[mt_rand(0, $dictionaryWordCount - 1)];
+            array_push($mnemonic, $word);
+            array_push($userMnemonicWords, [
+                'user_mnemonic_id' => $userMnemonicId,
+                'number' => $i + 1,
+                'word' => $word,
+                'created_at' => now(),
+                'updated_at' => now(),
+                'status' => UserMnemonicWord::ACTIVE,
+            ]);
+        }
+        UserMnemonicWord::insert($userMnemonicWords);
+
+        $userSecurityProfile = Auth::user()->security_profile;
+        $userSecurityProfile->is_mnemonic_generated = 1;
+        if ($userSecurityProfile->is_contact_verified == 1
+            && $userSecurityProfile->default_verification_method != 0) {
+            $userSecurityProfile->is_start_verification_complete = 1;
+        }
+        $userSecurityProfile->save();
+
+        return response()->api(true, 'Mnemonic reated successfully', $mnemonic);
+    }
+
+    /**
+     * <b>For the first time users / or those who have not verified contact, generated mnemonics etc:</b>
+     *
+     * -An empty security profile is created with default google authenticator secret based on user's email
+     *
+     * <b>For second time onwards user:</b>
+     *
+     * - `is_contact_verified`
+     *
+     * - `contact`
+     *
+     * - `is_mnemonic_generated`
+     *
+     * - `default_verification_method`
+     *
+     * - `google_authenticator_secret`
+     *
+     * - `google_authenticator_url`
+     *
+     * - `is_start_verification_complete`
+     *
+     * @param Request $request
+     * @return mixed
+     * @throws \PragmaRX\Google2FA\Exceptions\InsecureCallException
+     */
+    public function getSecurityProfile(Request $request)
+    {
+        $google2fa = new Google2FA();
+        if (true == empty(Auth::user()->security_profile)) {
+            return response()->api(false, 'Security profile created', []);
+        }
+        $google2fa->setAllowInsecureCallToGoogleApis(true);
+        $google2faURL = $google2fa->getQRCodeGoogleUrl(
+            config('app.name'),
+            Auth::user()->email,
+            Auth::user()->security_profile->google_authenticator_secret
+        );
+
+        return response()->api(true, 'Security profile created', [
+            'is_contact_verified' => Auth::user()->security_profile->is_contact_verified,
+            'contact' => Auth::user()->contact,
+            'is_mnemonic_generated' => Auth::user()->security_profile->is_mnemonic_generated,
+            'default_verification_method' => Auth::user()->security_profile->default_verification_method,
+            'google_authenticator_secret' => Auth::user()->security_profile->google_authenticator_secret,
+            'google_authenticator_url' => $google2faURL,
+            'is_start_verification_complete' => Auth::user()->security_profile->is_start_verification_complete,
+        ]);
+    }
+
+    /**
+     * Used to update user's default verification method
+     *
+     * `MNEMONIC_CHALLENGE`, `GAUTH_CHALLENGE`, `MOBILE_OTP_CHALLENGE`
+     *
+     * for `MNEMONIC_CHALLENGE` if mnemonics are not created then it will give error.
+     *
+     * for `MOBILE_OTP_CHALLENGE` if contact number is not verified by otp then it will give error.
+     *
+     * @param Request $request
+     * @return mixed
+     */
+    public function updateVerificationMethod(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'default_verification_method' => [
+                'required',
+                'integer',
+                Rule::in([
+                    AuthorizationChallenge::MNEMONIC_CHALLENGE,
+                    AuthorizationChallenge::GAUTH_CHALLENGE,
+                    AuthorizationChallenge::MOBILE_OTP_CHALLENGE,
+                ]),
+            ],
+        ]);
+        if ($validator->fails()) {
+            return response()->api(false, implode(', ', $validator->errors()->all()), null);
+        }
+
+        switch ($request->default_verification_method) {
+            case AuthorizationChallenge::MNEMONIC_CHALLENGE:
+                if (Auth::user()->security_profile->is_mnemonic_generated == 0) {
+                    return response()->api(false, 'Mnemonic is not set', null);
+                }
+                break;
+            case AuthorizationChallenge::GAUTH_CHALLENGE:
+                break;
+            case AuthorizationChallenge::MOBILE_OTP_CHALLENGE:
+                if (true == empty(Auth::user()->contact)
+                    || Auth::user()->security_profile->is_contact_verified == 0) {
+                    return response()->api(false, 'contact no is not set', null);
+                }
+                break;
+        }
+
+        $userSecurityProfile = Auth::user()->security_profile;
+        $userSecurityProfile->default_verification_method = $request->default_verification_method;
+        if ($userSecurityProfile->is_contact_verified == 1
+            && $userSecurityProfile->default_verification_method != 0) {
+            $userSecurityProfile->is_start_verification_complete = 1;
+        }
+        $userSecurityProfile->save();
+
+        return response()->api(true, 'Verification method updated successfully', null);
+    }
+
+    /**
+     * Used to verify google OTP number when google authenticator ask to enter code.
+     *
+     * @param Request $request
+     * @return mixed
+     */
+    public function verifyGAuth(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'secret' => 'required',
+        ]);
+        if ($validator->fails()) {
+            return response()->api(false, implode(', ', $validator->errors()->all()), null);
+        }
+
+        $google2fa = new Google2FA();
+        $timestamp = $google2fa->verifyKeyNewer(Auth::user()->security_profile->google_authenticator_secret,
+            $request->secret, Auth::user()->gauth_timestamp, 0);
+
+        if ($timestamp === false) {
+            return response()->api(true, 'Verification Failed', false);
+        }
+        Auth::user()->gauth_timestamp = $timestamp;
+        Auth::user()->save();
+
+        return response()->api(true, 'Verification Success', true);
+    }
+
+    /**
+     * Used to resend OTP for events like mobile verification and login verification.
+     *
+     * If user has OTP then sms will be resent.
+     *
+     * If user do not have otp then OTP will be created in DB and then sms will be resent.
+     *
+     * @param Request $request
+     * @return mixed
+     */
+    public function resendOtp(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'type' => [
+                'required',
+                Rule::in([
+                    MobileOneTimePassword::MOBILE_VERIFICATION,
+                    MobileOneTimePassword::LOGIN_VERIFICATION
+                ]),
+                'contact' => 'numeric',
+            ],
+        ]);
+        if ($validator->fails()) {
+            return response()->api(false, implode(', ', $validator->errors()->all()), null);
+        }
+
+        $otp = MobileOneTimePassword::findLatestValidByType($request->type, Auth::id());
+        if (false == empty($otp)) {
+            switch ($request->type) {
+                case MobileOneTimePassword::MOBILE_VERIFICATION:
+                    $contact = $otp->contact;
+                    break;
+                case MobileOneTimePassword::LOGIN_VERIFICATION:
+                    $contact = Auth::user()->contact;
+                    break;
+            }
+
+            $content = "{$otp->secret} is valid for {$otp->valid_till->diffInMinutes(now())} minutes";
+            Auth::user()->contact = $contact;
+            Auth::user()->notify(new Otp($content));
+
+        } else {
+            switch ($request->type) {
+                case MobileOneTimePassword::MOBILE_VERIFICATION:
+                    $contact = $request->contact;
+                    break;
+                case MobileOneTimePassword::LOGIN_VERIFICATION:
+                    $contact = Auth::user()->contact;
+                    break;
+            }
+            $secret = mt_rand(100000, 999999);
+            $validityMinutes = 5;
+            MobileOneTimePassword::createOtp([
+                'user_id' => Auth::id(),
+                'contact' => $contact,
+                'type' => $request->type,
+                'secret' => $secret,
+                'valid_till' => now()->addMinutes($validityMinutes),
+                'created_at' => now(),
+                'status' => MobileOneTimePassword::ACTIVE,
+            ]);
+            
+            $content = "{$secret} is valid for {$validityMinutes} minutes";
+            Auth::user()->contact = $contact;
+            Auth::user()->notify(new Otp($content));
+
+        }
+
+        return response()->api(true, "OTP resent", null);
+    }
+}
+

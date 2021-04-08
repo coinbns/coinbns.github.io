@@ -1,0 +1,2031 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0"/>
+    <meta charset="utf-8"/>
+    <title>API Documentation</title>
+    <meta name="author" content=""/>
+    <meta name="description" content=""/>
+
+    <link href="../css/bootstrap-combined.no-icons.min.css" rel="stylesheet">
+    <link href="../css/font-awesome.min.css" rel="stylesheet">
+    <link href="../css/prism.css" rel="stylesheet" media="all"/>
+    <link href="../css/template.css" rel="stylesheet" media="all"/>
+    
+    <!--[if lt IE 9]>
+    <script src="../js/html5.js"></script>
+    <![endif]-->
+    <script src="../js/jquery-1.11.0.min.js"></script>
+    <script src="../js/ui/1.10.4/jquery-ui.min.js"></script>
+    <script src="../js/bootstrap.min.js"></script>
+    <script src="../js/jquery.smooth-scroll.js"></script>
+    <script src="../js/prism.min.js"></script>
+    <!-- TODO: Add http://jscrollpane.kelvinluck.com/ to style the scrollbars for browsers not using webkit-->
+    <script type="text/javascript">
+    function loadExternalCodeSnippets() {
+        Array.prototype.slice.call(document.querySelectorAll('pre[data-src]')).forEach(function (pre) {
+            var src = pre.getAttribute('data-src');
+            var extension = (src.match(/\.(\w+)$/) || [, ''])[1];
+            var language = 'php';
+
+            var code = document.createElement('code');
+            code.className = 'language-' + language;
+
+            pre.textContent = '';
+
+            code.textContent = 'Loading…';
+
+            pre.appendChild(code);
+
+            var xhr = new XMLHttpRequest();
+
+            xhr.open('GET', src, true);
+
+            xhr.onreadystatechange = function () {
+                if (xhr.readyState == 4) {
+
+                    if (xhr.status < 400 && xhr.responseText) {
+                        code.textContent = xhr.responseText;
+
+                        Prism.highlightElement(code);
+                    }
+                    else if (xhr.status >= 400) {
+                        code.textContent = '✖ Error ' + xhr.status + ' while fetching file: ' + xhr.statusText;
+                    }
+                    else {
+                        code.textContent = '✖ Error: File does not exist or is empty';
+                    }
+                }
+            };
+
+            xhr.send(null);
+        });
+    }
+
+    $(document).ready(function(){
+        loadExternalCodeSnippets();
+    });
+    $('#source-view').on('shown', function () {
+        loadExternalCodeSnippets();
+    })
+</script>
+
+    <link rel="shortcut icon" href="../images/favicon.ico"/>
+    <link rel="apple-touch-icon" href="../images/apple-touch-icon.png"/>
+    <link rel="apple-touch-icon" sizes="72x72" href="../images/apple-touch-icon-72x72.png"/>
+    <link rel="apple-touch-icon" sizes="114x114" href="../images/apple-touch-icon-114x114.png"/>
+</head>
+<body>
+
+<div class="navbar navbar-fixed-top">
+    <div class="navbar-inner">
+        <div class="container">
+            <a class="btn btn-navbar" data-toggle="collapse" data-target=".nav-collapse">
+                <i class="icon-ellipsis-vertical"></i>
+            </a>
+            <a class="brand" href="../index.html">API Documentation</a>
+
+            <div class="nav-collapse">
+                <ul class="nav pull-right">
+                                        <li class="dropdown">
+                        <a href="../index.html" class="dropdown-toggle" data-toggle="dropdown">
+                            API Documentation <b class="caret"></b>
+                        </a>
+                        <ul class="dropdown-menu">
+                                                        <li><a href="../namespaces/App.html">\App</a></li>
+                                                        <li><a href="../namespaces/Murich.html">\Murich</a></li>
+                                                    </ul>
+                    </li>
+                                        <li class="dropdown" id="charts-menu">
+                        <a href="#" class="dropdown-toggle" data-toggle="dropdown">
+                            Charts <b class="caret"></b>
+                        </a>
+                        <ul class="dropdown-menu">
+                            <li>
+                                <a href="../graphs/class.html">
+                                    <i class="icon-list-alt"></i>&#160;Class hierarchy diagram
+                                </a>
+                            </li>
+                        </ul>
+                    </li>
+                    <li class="dropdown" id="reports-menu">
+                        <a href="#" class="dropdown-toggle" data-toggle="dropdown">
+                            Reports <b class="caret"></b>
+                        </a>
+                        <ul class="dropdown-menu">
+                            <li>
+                                <a href="../reports/errors.html">
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    <i class="icon-list-alt"></i>&#160;Errors <span class="label label-info pull-right">1967</span>
+                                </a>
+                            </li>
+                            <li>
+                                <a href="../reports/markers.html">
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    <i class="icon-list-alt"></i>&#160;Markers <span class="label label-info pull-right">1</span>
+                                </a>
+                            </li>
+                            <li>
+                                <a href="../reports/deprecated.html">
+                                                                                                                                                                                                                                                                    <i class="icon-list-alt"></i>&#160;Deprecated <span class="label label-info pull-right">2</span>
+                                </a>
+                            </li>
+                        </ul>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </div>
+    <!--<div class="go_to_top">-->
+    <!--<a href="#___" style="color: inherit">Back to top&#160;&#160;<i class="icon-upload icon-white"></i></a>-->
+    <!--</div>-->
+</div>
+
+<div id="___" class="container-fluid">
+        <section class="row-fluid">
+        <div class="span2 sidebar">
+                                <div class="accordion" style="margin-bottom: 0">
+        <div class="accordion-group">
+            <div class="accordion-heading">
+                                    <a class="accordion-toggle " data-toggle="collapse" data-target="#namespace-1771466423"></a>
+                                <a href="../namespaces/default.html" style="margin-left: 30px; padding-left: 0">\</a>
+            </div>
+            <div id="namespace-1771466423" class="accordion-body collapse in">
+                <div class="accordion-inner">
+
+                                                    <div class="accordion" style="margin-bottom: 0">
+        <div class="accordion-group">
+            <div class="accordion-heading">
+                                    <a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-479813036"></a>
+                                <a href="../namespaces/App.html" style="margin-left: 30px; padding-left: 0">App</a>
+            </div>
+            <div id="namespace-479813036" class="accordion-body collapse ">
+                <div class="accordion-inner">
+
+                                                    <div class="accordion" style="margin-bottom: 0">
+        <div class="accordion-group">
+            <div class="accordion-heading">
+                                    <a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-2072867972"></a>
+                                <a href="../namespaces/App.Channels.html" style="margin-left: 30px; padding-left: 0">Channels</a>
+            </div>
+            <div id="namespace-2072867972" class="accordion-body collapse ">
+                <div class="accordion-inner">
+
+                    
+                    <ul>
+                                                                                                    <li class="class"><a href="../classes/App.Channels.WebstagSms.html">WebstagSms</a></li>
+                                            </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+                                                    <div class="accordion" style="margin-bottom: 0">
+        <div class="accordion-group">
+            <div class="accordion-heading">
+                                    <a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-2079366198"></a>
+                                <a href="../namespaces/App.Coins.html" style="margin-left: 30px; padding-left: 0">Coins</a>
+            </div>
+            <div id="namespace-2079366198" class="accordion-body collapse ">
+                <div class="accordion-inner">
+
+                                                    <div class="accordion" style="margin-bottom: 0">
+        <div class="accordion-group">
+            <div class="accordion-heading">
+                                    <a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-1265032775"></a>
+                                <a href="../namespaces/App.Coins.Contracts.html" style="margin-left: 30px; padding-left: 0">Contracts</a>
+            </div>
+            <div id="namespace-1265032775" class="accordion-body collapse ">
+                <div class="accordion-inner">
+
+                    
+                    <ul>
+                                                    <li class="interface"><a href="../classes/App.Coins.Contracts.CoinContract.html">CoinContract</a></li>
+                                                                                            </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+                    
+                    <ul>
+                                                                                                    <li class="class"><a href="../classes/App.Coins.CoinStrategy.html">CoinStrategy</a></li>
+                                                    <li class="class"><a href="../classes/App.Coins.ETH.html">ETH</a></li>
+                                                    <li class="class"><a href="../classes/App.Coins.TETH.html">TETH</a></li>
+                                            </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+                                                    <div class="accordion" style="margin-bottom: 0">
+        <div class="accordion-group">
+            <div class="accordion-heading">
+                                    <a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-1558594448"></a>
+                                <a href="../namespaces/App.Console.html" style="margin-left: 30px; padding-left: 0">Console</a>
+            </div>
+            <div id="namespace-1558594448" class="accordion-body collapse ">
+                <div class="accordion-inner">
+
+                                                    <div class="accordion" style="margin-bottom: 0">
+        <div class="accordion-group">
+            <div class="accordion-heading">
+                                    <a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-1652542068"></a>
+                                <a href="../namespaces/App.Console.Commands.html" style="margin-left: 30px; padding-left: 0">Commands</a>
+            </div>
+            <div id="namespace-1652542068" class="accordion-body collapse ">
+                <div class="accordion-inner">
+
+                    
+                    <ul>
+                                                                                                    <li class="class"><a href="../classes/App.Console.Commands.CoinAndCurrencyUpdateCommand.html">CoinAndCurrencyUpdateCommand</a></li>
+                                                    <li class="class"><a href="../classes/App.Console.Commands.EmailNewsletters.html">EmailNewsletters</a></li>
+                                                    <li class="class"><a href="../classes/App.Console.Commands.ReferralLimitEvaluation.html">ReferralLimitEvaluation</a></li>
+                                                    <li class="class"><a href="../classes/App.Console.Commands.StoreCoinCommand.html">StoreCoinCommand</a></li>
+                                                    <li class="class"><a href="../classes/App.Console.Commands.TraderLevelEvaluateCommand.html">TraderLevelEvaluateCommand</a></li>
+                                                    <li class="class"><a href="../classes/App.Console.Commands.TransferCoinCommand.html">TransferCoinCommand</a></li>
+                                            </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+                    
+                    <ul>
+                                                                                                    <li class="class"><a href="../classes/App.Console.Kernel.html">Kernel</a></li>
+                                            </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+                                                    <div class="accordion" style="margin-bottom: 0">
+        <div class="accordion-group">
+            <div class="accordion-heading">
+                                    <a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-1437207005"></a>
+                                <a href="../namespaces/App.Events.html" style="margin-left: 30px; padding-left: 0">Events</a>
+            </div>
+            <div id="namespace-1437207005" class="accordion-body collapse ">
+                <div class="accordion-inner">
+
+                    
+                    <ul>
+                                                                                                    <li class="class"><a href="../classes/App.Events.BalanceUpdate.html">BalanceUpdate</a></li>
+                                                    <li class="class"><a href="../classes/App.Events.BuyerConfirmedPayment.html">BuyerConfirmedPayment</a></li>
+                                                    <li class="class"><a href="../classes/App.Events.BuyerRaisedDispute.html">BuyerRaisedDispute</a></li>
+                                                    <li class="class"><a href="../classes/App.Events.BuyerRecievedCoin.html">BuyerRecievedCoin</a></li>
+                                                    <li class="class"><a href="../classes/App.Events.DisputeChatMessage.html">DisputeChatMessage</a></li>
+                                                    <li class="class"><a href="../classes/App.Events.DisputeGuiltyFound.html">DisputeGuiltyFound</a></li>
+                                                    <li class="class"><a href="../classes/App.Events.DisputeRaised.html">DisputeRaised</a></li>
+                                                    <li class="class"><a href="../classes/App.Events.ErrorBroadcasting.html">ErrorBroadcasting</a></li>
+                                                    <li class="class"><a href="../classes/App.Events.EventTest.html">EventTest</a></li>
+                                                    <li class="class"><a href="../classes/App.Events.RecipientReadMessage.html">RecipientReadMessage</a></li>
+                                                    <li class="class"><a href="../classes/App.Events.SellerReceivedPayment.html">SellerReceivedPayment</a></li>
+                                                    <li class="class"><a href="../classes/App.Events.SellerReleasedCoin.html">SellerReleasedCoin</a></li>
+                                                    <li class="class"><a href="../classes/App.Events.SendNotification.html">SendNotification</a></li>
+                                                    <li class="class"><a href="../classes/App.Events.TradeCancelled.html">TradeCancelled</a></li>
+                                                    <li class="class"><a href="../classes/App.Events.TradeChatMessage.html">TradeChatMessage</a></li>
+                                            </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+                                                    <div class="accordion" style="margin-bottom: 0">
+        <div class="accordion-group">
+            <div class="accordion-heading">
+                                    <a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-73252516"></a>
+                                <a href="../namespaces/App.Exceptions.html" style="margin-left: 30px; padding-left: 0">Exceptions</a>
+            </div>
+            <div id="namespace-73252516" class="accordion-body collapse ">
+                <div class="accordion-inner">
+
+                    
+                    <ul>
+                                                                                                    <li class="class"><a href="../classes/App.Exceptions.Handler.html">Handler</a></li>
+                                            </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+                                                    <div class="accordion" style="margin-bottom: 0">
+        <div class="accordion-group">
+            <div class="accordion-heading">
+                                    <a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-248396160"></a>
+                                <a href="../namespaces/App.Http.html" style="margin-left: 30px; padding-left: 0">Http</a>
+            </div>
+            <div id="namespace-248396160" class="accordion-body collapse ">
+                <div class="accordion-inner">
+
+                                                    <div class="accordion" style="margin-bottom: 0">
+        <div class="accordion-group">
+            <div class="accordion-heading">
+                                    <a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-1683909278"></a>
+                                <a href="../namespaces/App.Http.Controllers.html" style="margin-left: 30px; padding-left: 0">Controllers</a>
+            </div>
+            <div id="namespace-1683909278" class="accordion-body collapse ">
+                <div class="accordion-inner">
+
+                                                    <div class="accordion" style="margin-bottom: 0">
+        <div class="accordion-group">
+            <div class="accordion-heading">
+                                    <a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-1386545200"></a>
+                                <a href="../namespaces/App.Http.Controllers.Admin.html" style="margin-left: 30px; padding-left: 0">Admin</a>
+            </div>
+            <div id="namespace-1386545200" class="accordion-body collapse ">
+                <div class="accordion-inner">
+
+                    
+                    <ul>
+                                                                                                    <li class="class"><a href="../classes/App.Http.Controllers.Admin.AddressController.html">AddressController</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Controllers.Admin.AdminController.html">AdminController</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Controllers.Admin.AnalyticsController.html">AnalyticsController</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Controllers.Admin.BlogController.html">BlogController</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Controllers.Admin.CoinController.html">CoinController</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Controllers.Admin.ConvertController.html">ConvertController</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Controllers.Admin.CountryController.html">CountryController</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Controllers.Admin.CurrencyController.html">CurrencyController</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Controllers.Admin.DepositController.html">DepositController</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Controllers.Admin.DisputeController.html">DisputeController</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Controllers.Admin.ExchangeController.html">ExchangeController</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Controllers.Admin.FAQController.html">FAQController</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Controllers.Admin.ForumController.html">ForumController</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Controllers.Admin.HelpController.html">HelpController</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Controllers.Admin.IpController.html">IpController</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Controllers.Admin.KeyController.html">KeyController</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Controllers.Admin.LiveErrorsAndExceptionsController.html">LiveErrorsAndExceptionsController</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Controllers.Admin.LogController.html">LogController</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Controllers.Admin.NewsletterController.html">NewsletterController</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Controllers.Admin.NodejsonController.html">NodejsonController</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Controllers.Admin.NotificationController.html">NotificationController</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Controllers.Admin.PaymentController.html">PaymentController</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Controllers.Admin.PermissionController.html">PermissionController</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Controllers.Admin.ReportController.html">ReportController</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Controllers.Admin.RoleController.html">RoleController</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Controllers.Admin.TestingController.html">TestingController</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Controllers.Admin.TicketController.html">TicketController</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Controllers.Admin.TncController.html">TncController</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Controllers.Admin.UsersController.html">UsersController</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Controllers.Admin.WithdrawalRequestController.html">WithdrawalRequestController</a></li>
+                                            </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+                                                    <div class="accordion" style="margin-bottom: 0">
+        <div class="accordion-group">
+            <div class="accordion-heading">
+                                    <a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-43236012"></a>
+                                <a href="../namespaces/App.Http.Controllers.Auth.html" style="margin-left: 30px; padding-left: 0">Auth</a>
+            </div>
+            <div id="namespace-43236012" class="accordion-body collapse ">
+                <div class="accordion-inner">
+
+                    
+                    <ul>
+                                                                                                    <li class="class"><a href="../classes/App.Http.Controllers.Auth.ForgotPasswordController.html">ForgotPasswordController</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Controllers.Auth.LoginController.html">LoginController</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Controllers.Auth.RegisterController.html">RegisterController</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Controllers.Auth.ResetPasswordController.html">ResetPasswordController</a></li>
+                                            </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+                                                    <div class="accordion" style="margin-bottom: 0">
+        <div class="accordion-group">
+            <div class="accordion-heading">
+                                    <a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-1495012762"></a>
+                                <a href="../namespaces/App.Http.Controllers.Home.html" style="margin-left: 30px; padding-left: 0">Home</a>
+            </div>
+            <div id="namespace-1495012762" class="accordion-body collapse ">
+                <div class="accordion-inner">
+
+                    
+                    <ul>
+                                                                                                    <li class="class"><a href="../classes/App.Http.Controllers.Home.AccountController.html">AccountController</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Controllers.Home.AdvertisementController.html">AdvertisementController</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Controllers.Home.AuthController.html">AuthController</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Controllers.Home.BlogController.html">BlogController</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Controllers.Home.ChallengeController.html">ChallengeController</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Controllers.Home.DisputeController.html">DisputeController</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Controllers.Home.EmailTranscriptController.html">EmailTranscriptController</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Controllers.Home.FAQController.html">FAQController</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Controllers.Home.ForumController.html">ForumController</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Controllers.Home.HelpController.html">HelpController</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Controllers.Home.MiscContoller.html">MiscContoller</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Controllers.Home.NewsletterController.html">NewsletterController</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Controllers.Home.ProfileController.html">ProfileController</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Controllers.Home.ProfileSecurityContoller.html">ProfileSecurityContoller</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Controllers.Home.ReferralController.html">ReferralController</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Controllers.Home.ReportController.html">ReportController</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Controllers.Home.TicketController.html">TicketController</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Controllers.Home.TncController.html">TncController</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Controllers.Home.TradeController.html">TradeController</a></li>
+                                            </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+                    
+                    <ul>
+                                                                                                    <li class="class"><a href="../classes/App.Http.Controllers.AdminPermissionController.html">AdminPermissionController</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Controllers.Controller.html">Controller</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Controllers.HomeController.html">HomeController</a></li>
+                                            </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+                                                    <div class="accordion" style="margin-bottom: 0">
+        <div class="accordion-group">
+            <div class="accordion-heading">
+                                    <a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-601927580"></a>
+                                <a href="../namespaces/App.Http.Middleware.html" style="margin-left: 30px; padding-left: 0">Middleware</a>
+            </div>
+            <div id="namespace-601927580" class="accordion-body collapse ">
+                <div class="accordion-inner">
+
+                    
+                    <ul>
+                                                                                                    <li class="class"><a href="../classes/App.Http.Middleware.AdminAuth.html">AdminAuth</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Middleware.AuthWithCache.html">AuthWithCache</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Middleware.CheckAdminRole.html">CheckAdminRole</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Middleware.CheckRole.html">CheckRole</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Middleware.CoinValidator.html">CoinValidator</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Middleware.csMiddleware.html">csMiddleware</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Middleware.EncryptCookies.html">EncryptCookies</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Middleware.EntrustPermission.html">EntrustPermission</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Middleware.EntrustRole.html">EntrustRole</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Middleware.EvaluateRouteDisability.html">EvaluateRouteDisability</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Middleware.EventLogger.html">EventLogger</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Middleware.FrameHeadersMiddleware.html">FrameHeadersMiddleware</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Middleware.GoogleRecaptcha.html">GoogleRecaptcha</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Middleware.Hashid.html">Hashid</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Middleware.IpFilter.html">IpFilter</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Middleware.RedirectIfAuthenticated.html">RedirectIfAuthenticated</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Middleware.SecureCheckClientCredentials.html">SecureCheckClientCredentials</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Middleware.SetLocale.html">SetLocale</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Middleware.SuperUserAccess.html">SuperUserAccess</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Middleware.TrimStrings.html">TrimStrings</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Middleware.TrustProxies.html">TrustProxies</a></li>
+                                                    <li class="class"><a href="../classes/App.Http.Middleware.VerifyCsrfToken.html">VerifyCsrfToken</a></li>
+                                            </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+                    
+                    <ul>
+                                                                                                    <li class="class"><a href="../classes/App.Http.Kernel.html">Kernel</a></li>
+                                            </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+                                                    <div class="accordion" style="margin-bottom: 0">
+        <div class="accordion-group">
+            <div class="accordion-heading">
+                                    <a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-620174349"></a>
+                                <a href="../namespaces/App.Jobs.html" style="margin-left: 30px; padding-left: 0">Jobs</a>
+            </div>
+            <div id="namespace-620174349" class="accordion-body collapse ">
+                <div class="accordion-inner">
+
+                    
+                    <ul>
+                                                                                                    <li class="class"><a href="../classes/App.Jobs.ProcessEventLogger.html">ProcessEventLogger</a></li>
+                                            </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+                                                    <div class="accordion" style="margin-bottom: 0">
+        <div class="accordion-group">
+            <div class="accordion-heading">
+                                    <a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-2035986894"></a>
+                                <a href="../namespaces/App.Mail.html" style="margin-left: 30px; padding-left: 0">Mail</a>
+            </div>
+            <div id="namespace-2035986894" class="accordion-body collapse ">
+                <div class="accordion-inner">
+
+                    
+                    <ul>
+                                                                                                    <li class="class"><a href="../classes/App.Mail.EmailDisputeChatMessages.html">EmailDisputeChatMessages</a></li>
+                                                    <li class="class"><a href="../classes/App.Mail.EmailNewsletterForBlogPosts.html">EmailNewsletterForBlogPosts</a></li>
+                                                    <li class="class"><a href="../classes/App.Mail.EmailReset.html">EmailReset</a></li>
+                                                    <li class="class"><a href="../classes/App.Mail.EmailSubscriptionVerify.html">EmailSubscriptionVerify</a></li>
+                                                    <li class="class"><a href="../classes/App.Mail.EmailSupportReply.html">EmailSupportReply</a></li>
+                                                    <li class="class"><a href="../classes/App.Mail.EmailTicketOutsideSecurity.html">EmailTicketOutsideSecurity</a></li>
+                                                    <li class="class"><a href="../classes/App.Mail.EmailTradeChatMessages.html">EmailTradeChatMessages</a></li>
+                                                    <li class="class"><a href="../classes/App.Mail.ExceptionOccured.html">ExceptionOccured</a></li>
+                                                    <li class="class"><a href="../classes/App.Mail.ForgotPassword.html">ForgotPassword</a></li>
+                                                    <li class="class"><a href="../classes/App.Mail.Referral.html">Referral</a></li>
+                                                    <li class="class"><a href="../classes/App.Mail.RegistrationSuccess.html">RegistrationSuccess</a></li>
+                                                    <li class="class"><a href="../classes/App.Mail.UserSuspended.html">UserSuspended</a></li>
+                                                    <li class="class"><a href="../classes/App.Mail.VerifyRegistration.html">VerifyRegistration</a></li>
+                                            </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+                                                    <div class="accordion" style="margin-bottom: 0">
+        <div class="accordion-group">
+            <div class="accordion-heading">
+                                    <a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-566447233"></a>
+                                <a href="../namespaces/App.Models.html" style="margin-left: 30px; padding-left: 0">Models</a>
+            </div>
+            <div id="namespace-566447233" class="accordion-body collapse ">
+                <div class="accordion-inner">
+
+                    
+                    <ul>
+                                                                                                    <li class="class"><a href="../classes/App.Models.Admin.html">Admin</a></li>
+                                                    <li class="class"><a href="../classes/App.Models.Advertisement.html">Advertisement</a></li>
+                                                    <li class="class"><a href="../classes/App.Models.AdvertisementPaymentMethod.html">AdvertisementPaymentMethod</a></li>
+                                                    <li class="class"><a href="../classes/App.Models.AdvertisementTimeSlot.html">AdvertisementTimeSlot</a></li>
+                                                    <li class="class"><a href="../classes/App.Models.AuthorizationChallenge.html">AuthorizationChallenge</a></li>
+                                                    <li class="class"><a href="../classes/App.Models.BaseModel.html">BaseModel</a></li>
+                                                    <li class="class"><a href="../classes/App.Models.BlogPost.html">BlogPost</a></li>
+                                                    <li class="class"><a href="../classes/App.Models.ChatMessage.html">ChatMessage</a></li>
+                                                    <li class="class"><a href="../classes/App.Models.Coin.html">Coin</a></li>
+                                                    <li class="class"><a href="../classes/App.Models.CoinDetail.html">CoinDetail</a></li>
+                                                    <li class="class"><a href="../classes/App.Models.Country.html">Country</a></li>
+                                                    <li class="class"><a href="../classes/App.Models.Currency.html">Currency</a></li>
+                                                    <li class="class"><a href="../classes/App.Models.Dispute.html">Dispute</a></li>
+                                                    <li class="class"><a href="../classes/App.Models.DisputeChat.html">DisputeChat</a></li>
+                                                    <li class="class"><a href="../classes/App.Models.DisputeChatMessage.html">DisputeChatMessage</a></li>
+                                                    <li class="class"><a href="../classes/App.Models.DisputeFeedback.html">DisputeFeedback</a></li>
+                                                    <li class="class"><a href="../classes/App.Models.DisputeReason.html">DisputeReason</a></li>
+                                                    <li class="class"><a href="../classes/App.Models.DisputeScreenShare.html">DisputeScreenShare</a></li>
+                                                    <li class="class"><a href="../classes/App.Models.EmailCampaign.html">EmailCampaign</a></li>
+                                                    <li class="class"><a href="../classes/App.Models.EmailReset.html">EmailReset</a></li>
+                                                    <li class="class"><a href="../classes/App.Models.EventLogger.html">EventLogger</a></li>
+                                                    <li class="class"><a href="../classes/App.Models.Faq.html">Faq</a></li>
+                                                    <li class="class"><a href="../classes/App.Models.FaqTopic.html">FaqTopic</a></li>
+                                                    <li class="class"><a href="../classes/App.Models.ForumCategory.html">ForumCategory</a></li>
+                                                    <li class="class"><a href="../classes/App.Models.ForumPost.html">ForumPost</a></li>
+                                                    <li class="class"><a href="../classes/App.Models.ForumPostReply.html">ForumPostReply</a></li>
+                                                    <li class="class"><a href="../classes/App.Models.ForumPostReplyVote.html">ForumPostReplyVote</a></li>
+                                                    <li class="class"><a href="../classes/App.Models.ForumPostTag.html">ForumPostTag</a></li>
+                                                    <li class="class"><a href="../classes/App.Models.ForumPostVote.html">ForumPostVote</a></li>
+                                                    <li class="class"><a href="../classes/App.Models.ForumTag.html">ForumTag</a></li>
+                                                    <li class="class"><a href="../classes/App.Models.FundAddress.html">FundAddress</a></li>
+                                                    <li class="class"><a href="../classes/App.Models.HelpSubTopic.html">HelpSubTopic</a></li>
+                                                    <li class="class"><a href="../classes/App.Models.HelpTopic.html">HelpTopic</a></li>
+                                                    <li class="class"><a href="../classes/App.Models.LogsDownloadedBy.html">LogsDownloadedBy</a></li>
+                                                    <li class="class"><a href="../classes/App.Models.MobileOneTimePassword.html">MobileOneTimePassword</a></li>
+                                                    <li class="class"><a href="../classes/App.Models.Model.html">Model</a></li>
+                                                    <li class="class"><a href="../classes/App.Models.MongoModel.html">MongoModel</a></li>
+                                                    <li class="class"><a href="../classes/App.Models.NameChange.html">NameChange</a></li>
+                                                    <li class="class"><a href="../classes/App.Models.NewsletterEmail.html">NewsletterEmail</a></li>
+                                                    <li class="class"><a href="../classes/App.Models.Notification.html">Notification</a></li>
+                                                    <li class="class"><a href="../classes/App.Models.OauthAccessToken.html">OauthAccessToken</a></li>
+                                                    <li class="class"><a href="../classes/App.Models.OauthClient.html">OauthClient</a></li>
+                                                    <li class="class"><a href="../classes/App.Models.OauthRefreshToken.html">OauthRefreshToken</a></li>
+                                                    <li class="class"><a href="../classes/App.Models.PasswordReset.html">PasswordReset</a></li>
+                                                    <li class="class"><a href="../classes/App.Models.PublicAddress.html">PublicAddress</a></li>
+                                                    <li class="class"><a href="../classes/App.Models.Referral.html">Referral</a></li>
+                                                    <li class="class"><a href="../classes/App.Models.ReportedAdvertisement.html">ReportedAdvertisement</a></li>
+                                                    <li class="class"><a href="../classes/App.Models.ReportedUser.html">ReportedUser</a></li>
+                                                    <li class="class"><a href="../classes/App.Models.StorageAddress.html">StorageAddress</a></li>
+                                                    <li class="class"><a href="../classes/App.Models.TicketQuery.html">TicketQuery</a></li>
+                                                    <li class="class"><a href="../classes/App.Models.TicketReason.html">TicketReason</a></li>
+                                                    <li class="class"><a href="../classes/App.Models.TicketReply.html">TicketReply</a></li>
+                                                    <li class="class"><a href="../classes/App.Models.Trade.html">Trade</a></li>
+                                                    <li class="class"><a href="../classes/App.Models.TradeLog.html">TradeLog</a></li>
+                                                    <li class="class"><a href="../classes/App.Models.Transaction.html">Transaction</a></li>
+                                                    <li class="class"><a href="../classes/App.Models.TransactionLog.html">TransactionLog</a></li>
+                                                    <li class="class"><a href="../classes/App.Models.UnregisteredUser.html">UnregisteredUser</a></li>
+                                                    <li class="class"><a href="../classes/App.Models.User.html">User</a></li>
+                                                    <li class="class"><a href="../classes/App.Models.UserAccessLog.html">UserAccessLog</a></li>
+                                                    <li class="class"><a href="../classes/App.Models.UserCoin.html">UserCoin</a></li>
+                                                    <li class="class"><a href="../classes/App.Models.UserFeedback.html">UserFeedback</a></li>
+                                                    <li class="class"><a href="../classes/App.Models.UserMnemonic.html">UserMnemonic</a></li>
+                                                    <li class="class"><a href="../classes/App.Models.UserMnemonicWord.html">UserMnemonicWord</a></li>
+                                                    <li class="class"><a href="../classes/App.Models.UserSecurityProfile.html">UserSecurityProfile</a></li>
+                                                    <li class="class"><a href="../classes/App.Models.WebrtcChat.html">WebrtcChat</a></li>
+                                                    <li class="class"><a href="../classes/App.Models.WithdrawalRequest.html">WithdrawalRequest</a></li>
+                                            </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+                                                    <div class="accordion" style="margin-bottom: 0">
+        <div class="accordion-group">
+            <div class="accordion-heading">
+                                    <a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-1466900457"></a>
+                                <a href="../namespaces/App.Notifications.html" style="margin-left: 30px; padding-left: 0">Notifications</a>
+            </div>
+            <div id="namespace-1466900457" class="accordion-body collapse ">
+                <div class="accordion-inner">
+
+                    
+                    <ul>
+                                                                                                    <li class="class"><a href="../classes/App.Notifications.AdminTicketReply.html">AdminTicketReply</a></li>
+                                                    <li class="class"><a href="../classes/App.Notifications.BuyerCalledDispute.html">BuyerCalledDispute</a></li>
+                                                    <li class="class"><a href="../classes/App.Notifications.ChallengeOtp.html">ChallengeOtp</a></li>
+                                                    <li class="class"><a href="../classes/App.Notifications.DisputeChatNotification.html">DisputeChatNotification</a></li>
+                                                    <li class="class"><a href="../classes/App.Notifications.Otp.html">Otp</a></li>
+                                                    <li class="class"><a href="../classes/App.Notifications.TradeRequest.html">TradeRequest</a></li>
+                                                    <li class="class"><a href="../classes/App.Notifications.TradeRequestAccepted.html">TradeRequestAccepted</a></li>
+                                                    <li class="class"><a href="../classes/App.Notifications.TradeRequestRejected.html">TradeRequestRejected</a></li>
+                                                    <li class="class"><a href="../classes/App.Notifications.UserTradeLevel.html">UserTradeLevel</a></li>
+                                            </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+                                                    <div class="accordion" style="margin-bottom: 0">
+        <div class="accordion-group">
+            <div class="accordion-heading">
+                                    <a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-520453545"></a>
+                                <a href="../namespaces/App.Providers.html" style="margin-left: 30px; padding-left: 0">Providers</a>
+            </div>
+            <div id="namespace-520453545" class="accordion-body collapse ">
+                <div class="accordion-inner">
+
+                    
+                    <ul>
+                                                                                                    <li class="class"><a href="../classes/App.Providers.AppServiceProvider.html">AppServiceProvider</a></li>
+                                                    <li class="class"><a href="../classes/App.Providers.AuthServiceProvider.html">AuthServiceProvider</a></li>
+                                                    <li class="class"><a href="../classes/App.Providers.BroadcastServiceProvider.html">BroadcastServiceProvider</a></li>
+                                                    <li class="class"><a href="../classes/App.Providers.EntrustCustomServiceProvider.html">EntrustCustomServiceProvider</a></li>
+                                                    <li class="class"><a href="../classes/App.Providers.EventServiceProvider.html">EventServiceProvider</a></li>
+                                                    <li class="class"><a href="../classes/App.Providers.HorizonServiceProvider.html">HorizonServiceProvider</a></li>
+                                                    <li class="class"><a href="../classes/App.Providers.ResponseServiceProvider.html">ResponseServiceProvider</a></li>
+                                                    <li class="class"><a href="../classes/App.Providers.RouteServiceProvider.html">RouteServiceProvider</a></li>
+                                            </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+                                                    <div class="accordion" style="margin-bottom: 0">
+        <div class="accordion-group">
+            <div class="accordion-heading">
+                                    <a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-1859370324"></a>
+                                <a href="../namespaces/App.Rules.html" style="margin-left: 30px; padding-left: 0">Rules</a>
+            </div>
+            <div id="namespace-1859370324" class="accordion-body collapse ">
+                <div class="accordion-inner">
+
+                    
+                    <ul>
+                                                                                                    <li class="class"><a href="../classes/App.Rules.Phone_number.html">Phone_number</a></li>
+                                            </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+                                                    <div class="accordion" style="margin-bottom: 0">
+        <div class="accordion-group">
+            <div class="accordion-heading">
+                                    <a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-2009760790"></a>
+                                <a href="../namespaces/App.Traits.html" style="margin-left: 30px; padding-left: 0">Traits</a>
+            </div>
+            <div id="namespace-2009760790" class="accordion-body collapse ">
+                <div class="accordion-inner">
+
+                    
+                    <ul>
+                                                                            <li class="trait"><a href="../classes/App.Traits.PassportToken.html">PassportToken</a></li>
+                                                                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+                    
+                    <ul>
+                                                                                                    <li class="class"><a href="../classes/App.Admin.html">Admin</a></li>
+                                                    <li class="class"><a href="../classes/App.Cs_user.html">Cs_user</a></li>
+                                                    <li class="class"><a href="../classes/App.Permission.html">Permission</a></li>
+                                                    <li class="class"><a href="../classes/App.PermissionRole.html">PermissionRole</a></li>
+                                                    <li class="class"><a href="../classes/App.Role.html">Role</a></li>
+                                                    <li class="class"><a href="../classes/App.RoleUser.html">RoleUser</a></li>
+                                                    <li class="class"><a href="../classes/App.User.html">User</a></li>
+                                            </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+                                                    <div class="accordion" style="margin-bottom: 0">
+        <div class="accordion-group">
+            <div class="accordion-heading">
+                                    <a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-643893350"></a>
+                                <a href="../namespaces/Murich.html" style="margin-left: 30px; padding-left: 0">Murich</a>
+            </div>
+            <div id="namespace-643893350" class="accordion-body collapse ">
+                <div class="accordion-inner">
+
+                                                    <div class="accordion" style="margin-bottom: 0">
+        <div class="accordion-group">
+            <div class="accordion-heading">
+                                    <a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-1245649630"></a>
+                                <a href="../namespaces/Murich.PhpCryptocurrencyAddressValidation.html" style="margin-left: 30px; padding-left: 0">PhpCryptocurrencyAddressValidation</a>
+            </div>
+            <div id="namespace-1245649630" class="accordion-body collapse ">
+                <div class="accordion-inner">
+
+                                                    <div class="accordion" style="margin-bottom: 0">
+        <div class="accordion-group">
+            <div class="accordion-heading">
+                                    <a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-6518269"></a>
+                                <a href="../namespaces/Murich.PhpCryptocurrencyAddressValidation.Validation.html" style="margin-left: 30px; padding-left: 0">Validation</a>
+            </div>
+            <div id="namespace-6518269" class="accordion-body collapse ">
+                <div class="accordion-inner">
+
+                    
+                    <ul>
+                                                                                                    <li class="class"><a href="../classes/Murich.PhpCryptocurrencyAddressValidation.Validation.TBTC.html">TBTC</a></li>
+                                            </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+                    
+                    <ul>
+                                                                                            </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+                    
+                    <ul>
+                                                                                            </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+                    
+                    <ul>
+                                                                                            </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+        </div>
+    </section>
+    <section class="row-fluid">
+        <div class="span10 offset2">
+            <div class="row-fluid">
+                <div class="span8 content class">
+                    <nav>
+                                                <a href="../namespaces/App.Http.Controllers.Home.html">\App\Http\Controllers\Home</a> <i class="icon-level-up"></i>
+                                            </nav>
+                    <a href="#source-view" role="button" class="pull-right btn" data-toggle="modal"><i class="icon-code"></i></a>
+
+                    <h1><small>\App\Http\Controllers\Home</small>TradeController</h1>
+                    <p><em></em></p>
+                    
+                    
+                                        
+                    <section id="summary">
+                        <h2>Summary</h2>
+                        <section class="row-fluid heading">
+                            <section class="span4">
+                                <a href="#methods">Methods</a>
+                            </section>
+                            <section class="span4">
+                                <a href="#properties">Properties</a>
+                            </section>
+                            <section class="span4">
+                                <a href="#constants">Constants</a>
+                            </section>
+                        </section>
+                        <section class="row-fluid public">
+                            <section class="span4">
+                                                                    <a href="../classes/App.Http.Controllers.Controller.html#method_formatScale" class="">formatScale()</a><br />
+                                                                    <a href="../classes/App.Http.Controllers.Controller.html#method_evaluateRole" class="">evaluateRole()</a><br />
+                                                                    <a href="../classes/App.Http.Controllers.Controller.html#method_insertAuthorUsernameInCollection" class="">insertAuthorUsernameInCollection()</a><br />
+                                                                    <a href="../classes/App.Http.Controllers.Controller.html#method_decodeHash" class="">decodeHash()</a><br />
+                                                                    <a href="../classes/App.Http.Controllers.Controller.html#method_getChildRolesOfParentRoles" class="">getChildRolesOfParentRoles()</a><br />
+                                                                    <a href="../classes/App.Http.Controllers.Controller.html#method_evaluateChildRole" class="">evaluateChildRole()</a><br />
+                                                                    <a href="../classes/App.Http.Controllers.Home.TradeController.html#method_answerTradeRequest" class="">answerTradeRequest()</a><br />
+                                                                    <a href="../classes/App.Http.Controllers.Home.TradeController.html#method_getTrade" class="">getTrade()</a><br />
+                                                                    <a href="../classes/App.Http.Controllers.Home.TradeController.html#method_getTradeMessages" class="">getTradeMessages()</a><br />
+                                                                    <a href="../classes/App.Http.Controllers.Home.TradeController.html#method_sendTradeMessage" class="">sendTradeMessage()</a><br />
+                                                                    <a href="../classes/App.Http.Controllers.Home.TradeController.html#method_downloadChatMessagePdf" class="">downloadChatMessagePdf()</a><br />
+                                                                    <a href="../classes/App.Http.Controllers.Home.TradeController.html#method_markChatMessageRead" class="">markChatMessageRead()</a><br />
+                                                                    <a href="../classes/App.Http.Controllers.Home.TradeController.html#method_confirmPaymentByBuyer" class="">confirmPaymentByBuyer()</a><br />
+                                                                    <a href="../classes/App.Http.Controllers.Home.TradeController.html#method_paymentRecievedBySeller" class="">paymentRecievedBySeller()</a><br />
+                                                                    <a href="../classes/App.Http.Controllers.Home.TradeController.html#method_releaseCoinBySeller" class="">releaseCoinBySeller()</a><br />
+                                                                    <a href="../classes/App.Http.Controllers.Home.TradeController.html#method_coinRecievedByBuyer" class="deprecated">coinRecievedByBuyer()</a><br />
+                                                                    <a href="../classes/App.Http.Controllers.Home.TradeController.html#method_cancelTrade" class="">cancelTrade()</a><br />
+                                                                    <a href="../classes/App.Http.Controllers.Home.TradeController.html#method_disputeCalled" class="">disputeCalled()</a><br />
+                                                                    <a href="../classes/App.Http.Controllers.Home.TradeController.html#method_tradeFeedback" class="">tradeFeedback()</a><br />
+                                                                    <a href="../classes/App.Http.Controllers.Home.TradeController.html#method_getDisputeReasons" class="">getDisputeReasons()</a><br />
+                                                            </section>
+                            <section class="span4">
+                                                                    <em>No public properties found</em>
+                                                            </section>
+                            <section class="span4">
+                                                                    <em>No constants found</em>
+                                                            </section>
+                        </section>
+                        <section class="row-fluid protected">
+                            <section class="span4">
+                                                                    <a href="../classes/App.Http.Controllers.Home.TradeController.html#method_calculateTrustedTradeScoreOfUser" class="">calculateTrustedTradeScoreOfUser()</a><br />
+                                                            </section>
+                            <section class="span4">
+                                                                    <em>No protected properties found</em>
+                                                            </section>
+                            <section class="span4">
+                                <em>N/A</em>
+                            </section>
+                        </section>
+                        <section class="row-fluid private">
+                            <section class="span4">
+                                                                    <a href="../classes/App.Http.Controllers.Home.TradeController.html#method_tradeStatusMessage" class="">tradeStatusMessage()</a><br />
+                                                            </section>
+                            <section class="span4">
+                                                                    <em>No private properties found</em>
+                                                            </section>
+                            <section class="span4">
+                                <em>N/A</em>
+                            </section>
+                        </section>
+                    </section>
+                </div>
+                <aside class="span4 detailsbar">
+                                        
+                    
+                    <dl>
+                        <dt>File</dt>
+                            <dd><a href="../files/Http.Controllers.Home.TradeController.html"><div class="path-wrapper">Http/Controllers/Home/TradeController.php</div></a></dd>
+                                                <dt>Package</dt>
+                            <dd><div class="namespace-wrapper">Default</div></dd>
+                                                <dt>Class hierarchy</dt>
+                            <dd class="hierarchy">
+                                                                                                                                                                                                                                                                                                                                                                                                                                                            
+                                        <div class="namespace-wrapper">\Illuminate\Routing\Controller</div>
+                                                                    
+                                        <div class="namespace-wrapper"><a href="../classes/App.Http.Controllers.Controller.html">\App\Http\Controllers\Controller</a></div>
+                                                                                                    <div class="namespace-wrapper">\App\Http\Controllers\Home\TradeController</div>
+                            </dd>
+
+                        
+                        
+                        
+                        
+                                                                        </dl>
+                    <h2>Tags</h2>
+                    <table class="table table-condensed">
+                                            <tr><td colspan="2"><em>None found</em></td></tr>
+                                        </table>
+                </aside>
+            </div>
+
+                        
+                        
+                                    <a id="methods" name="methods"></a>
+            <div class="row-fluid">
+                <div class="span8 content class"><h2>Methods</h2></div>
+                <aside class="span4 detailsbar"></aside>
+            </div>
+
+                                    <div class="row-fluid">
+        <div class="span8 content class">
+            <a id="method_formatScale" name="method_formatScale" class="anchor"></a>
+            <article class="method">
+                <h3 class="public ">formatScale()</h3>
+                <a href="#source-view" role="button" class="pull-right btn" data-toggle="modal" style="font-size: 1.1em; padding: 9px 14px"><i class="icon-code"></i></a>
+                <pre class="signature" style="margin-right: 54px;">formatScale(string  <span class="argument">$value</span>) : string</pre>
+                <p><em>Converting a big number in Billions(B) or Millions(M)</em></p>
+                
+
+                                    <h4>Parameters</h4>
+                    <table class="table table-condensed table-hover">
+                                                    <tr>
+                                <td>string</td>
+                                <td>$value </td>
+                                <td></td>
+                            </tr>
+                                            </table>
+                
+                
+                                    <h4>Returns</h4>
+                    string
+                                    				
+                            </article>
+        </div>
+        <aside class="span4 detailsbar">
+            <h1><i class="icon-arrow-down"></i></h1>
+                                                            <dl>
+                                                    <dt>Inherited from</dt>
+                    <dd><a href="../classes/App.Http.Controllers.Controller.html"><div class="path-wrapper">\App\Http\Controllers\Controller</div></a></dd>
+                                                            </dl>
+            <h2>Tags</h2>
+            <table class="table table-condensed">
+                                    <tr><td colspan="2"><em>None found</em></td></tr>
+                            </table>
+        </aside>
+    </div>
+
+                                    <div class="row-fluid">
+        <div class="span8 content class">
+            <a id="method_evaluateRole" name="method_evaluateRole" class="anchor"></a>
+            <article class="method">
+                <h3 class="public ">evaluateRole()</h3>
+                <a href="#source-view" role="button" class="pull-right btn" data-toggle="modal" style="font-size: 1.1em; padding: 9px 14px"><i class="icon-code"></i></a>
+                <pre class="signature" style="margin-right: 54px;">evaluateRole(integer  <span class="argument">$role</span>) : boolean</pre>
+                <p><em>Confirms an admin user is, of a particular role by providing role constant as parameter.</em></p>
+                
+
+                                    <h4>Parameters</h4>
+                    <table class="table table-condensed table-hover">
+                                                    <tr>
+                                <td>integer</td>
+                                <td>$role </td>
+                                <td></td>
+                            </tr>
+                                            </table>
+                
+                
+                                    <h4>Returns</h4>
+                    boolean
+                                    				
+                            </article>
+        </div>
+        <aside class="span4 detailsbar">
+            <h1><i class="icon-arrow-down"></i></h1>
+                                                            <dl>
+                                                    <dt>Inherited from</dt>
+                    <dd><a href="../classes/App.Http.Controllers.Controller.html"><div class="path-wrapper">\App\Http\Controllers\Controller</div></a></dd>
+                                                            </dl>
+            <h2>Tags</h2>
+            <table class="table table-condensed">
+                                    <tr><td colspan="2"><em>None found</em></td></tr>
+                            </table>
+        </aside>
+    </div>
+
+                                    <div class="row-fluid">
+        <div class="span8 content class">
+            <a id="method_insertAuthorUsernameInCollection" name="method_insertAuthorUsernameInCollection" class="anchor"></a>
+            <article class="method">
+                <h3 class="public ">insertAuthorUsernameInCollection()</h3>
+                <a href="#source-view" role="button" class="pull-right btn" data-toggle="modal" style="font-size: 1.1em; padding: 9px 14px"><i class="icon-code"></i></a>
+                <pre class="signature" style="margin-right: 54px;">insertAuthorUsernameInCollection(array  <span class="argument">$collection</span>) : mixed</pre>
+                <p><em>Since, we can not join mongoDB and MySql together hence</em></p>
+                <p>here we have used to insert <code>username</code> in the collection returned by mongo Query.</p>
+
+                                    <h4>Parameters</h4>
+                    <table class="table table-condensed table-hover">
+                                                    <tr>
+                                <td>array</td>
+                                <td>$collection </td>
+                                <td></td>
+                            </tr>
+                                            </table>
+                
+                
+                                    <h4>Returns</h4>
+                    mixed
+                                    				
+                            </article>
+        </div>
+        <aside class="span4 detailsbar">
+            <h1><i class="icon-arrow-down"></i></h1>
+                                                            <dl>
+                                                    <dt>Inherited from</dt>
+                    <dd><a href="../classes/App.Http.Controllers.Controller.html"><div class="path-wrapper">\App\Http\Controllers\Controller</div></a></dd>
+                                                            </dl>
+            <h2>Tags</h2>
+            <table class="table table-condensed">
+                                    <tr><td colspan="2"><em>None found</em></td></tr>
+                            </table>
+        </aside>
+    </div>
+
+                                    <div class="row-fluid">
+        <div class="span8 content class">
+            <a id="method_decodeHash" name="method_decodeHash" class="anchor"></a>
+            <article class="method">
+                <h3 class="public ">decodeHash()</h3>
+                <a href="#source-view" role="button" class="pull-right btn" data-toggle="modal" style="font-size: 1.1em; padding: 9px 14px"><i class="icon-code"></i></a>
+                <pre class="signature" style="margin-right: 54px;">decodeHash(  <span class="argument">$hash</span>) : string|integer</pre>
+                <p><em>Decodes encoded ids / hash in to normal integer Ids.</em></p>
+                <p>Never decodes negative number's hash.</p>
+<p>Passing bogus string will return empty array.</p>
+
+                                    <h4>Parameters</h4>
+                    <table class="table table-condensed table-hover">
+                                                    <tr>
+                                <td></td>
+                                <td>$hash </td>
+                                <td></td>
+                            </tr>
+                                            </table>
+                
+                
+                                    <h4>Returns</h4>
+                    string|integer
+                                    				
+                            </article>
+        </div>
+        <aside class="span4 detailsbar">
+            <h1><i class="icon-arrow-down"></i></h1>
+                                                            <dl>
+                                                    <dt>Inherited from</dt>
+                    <dd><a href="../classes/App.Http.Controllers.Controller.html"><div class="path-wrapper">\App\Http\Controllers\Controller</div></a></dd>
+                                                            </dl>
+            <h2>Tags</h2>
+            <table class="table table-condensed">
+                                    <tr><td colspan="2"><em>None found</em></td></tr>
+                            </table>
+        </aside>
+    </div>
+
+                                    <div class="row-fluid">
+        <div class="span8 content class">
+            <a id="method_getChildRolesOfParentRoles" name="method_getChildRolesOfParentRoles" class="anchor"></a>
+            <article class="method">
+                <h3 class="public ">getChildRolesOfParentRoles()</h3>
+                <a href="#source-view" role="button" class="pull-right btn" data-toggle="modal" style="font-size: 1.1em; padding: 9px 14px"><i class="icon-code"></i></a>
+                <pre class="signature" style="margin-right: 54px;">getChildRolesOfParentRoles(array  <span class="argument">$parentIdArray</span>, array  <span class="argument">$mergedArray</span>) : mixed</pre>
+                <p><em>RECURSIVE FUNCTION:</em></p>
+                <p>Used to fetch child roles parent roles recursively.</p>
+<p>If fetching child roles of a single parent role then initially cast the <code>$parentIdArray</code> parameter with (array)</p>
+<p><strong><em><code>Example: $result = $this-&gt;getChildRolesOfParentRoles((array)$parent_id,[]);</code></em></strong></p>
+
+                                    <h4>Parameters</h4>
+                    <table class="table table-condensed table-hover">
+                                                    <tr>
+                                <td>array</td>
+                                <td>$parentIdArray </td>
+                                <td></td>
+                            </tr>
+                                                    <tr>
+                                <td>array</td>
+                                <td>$mergedArray </td>
+                                <td></td>
+                            </tr>
+                                            </table>
+                
+                
+                                    <h4>Returns</h4>
+                    mixed
+                                    				
+                            </article>
+        </div>
+        <aside class="span4 detailsbar">
+            <h1><i class="icon-arrow-down"></i></h1>
+                                                            <dl>
+                                                    <dt>Inherited from</dt>
+                    <dd><a href="../classes/App.Http.Controllers.Controller.html"><div class="path-wrapper">\App\Http\Controllers\Controller</div></a></dd>
+                                                            </dl>
+            <h2>Tags</h2>
+            <table class="table table-condensed">
+                                    <tr><td colspan="2"><em>None found</em></td></tr>
+                            </table>
+        </aside>
+    </div>
+
+                                    <div class="row-fluid">
+        <div class="span8 content class">
+            <a id="method_evaluateChildRole" name="method_evaluateChildRole" class="anchor"></a>
+            <article class="method">
+                <h3 class="public ">evaluateChildRole()</h3>
+                <a href="#source-view" role="button" class="pull-right btn" data-toggle="modal" style="font-size: 1.1em; padding: 9px 14px"><i class="icon-code"></i></a>
+                <pre class="signature" style="margin-right: 54px;">evaluateChildRole(integer  <span class="argument">$childRoleId</span>, integer  <span class="argument">$parentRoleId</span>) : boolean</pre>
+                <p><em>`true` if parent role has specified child role and `false` if not.</em></p>
+                
+
+                                    <h4>Parameters</h4>
+                    <table class="table table-condensed table-hover">
+                                                    <tr>
+                                <td>integer</td>
+                                <td>$childRoleId </td>
+                                <td></td>
+                            </tr>
+                                                    <tr>
+                                <td>integer</td>
+                                <td>$parentRoleId </td>
+                                <td></td>
+                            </tr>
+                                            </table>
+                
+                
+                                    <h4>Returns</h4>
+                    boolean
+                                    				
+                            </article>
+        </div>
+        <aside class="span4 detailsbar">
+            <h1><i class="icon-arrow-down"></i></h1>
+                                                            <dl>
+                                                    <dt>Inherited from</dt>
+                    <dd><a href="../classes/App.Http.Controllers.Controller.html"><div class="path-wrapper">\App\Http\Controllers\Controller</div></a></dd>
+                                                                            <dt>See also</dt>
+                                                                <dd><a href="../classes/App.Http.Controllers.Controller.html#method_getChildRolesOfParentRoles"><span class="namespace-wrapper">Uses getChildRolesOfParentRoles()</span></a></dd>
+                                                                </dl>
+            <h2>Tags</h2>
+            <table class="table table-condensed">
+                                    <tr><td colspan="2"><em>None found</em></td></tr>
+                            </table>
+        </aside>
+    </div>
+
+                                    <div class="row-fluid">
+        <div class="span8 content class">
+            <a id="method_answerTradeRequest" name="method_answerTradeRequest" class="anchor"></a>
+            <article class="method">
+                <h3 class="public ">answerTradeRequest()</h3>
+                <a href="#source-view" role="button" class="pull-right btn" data-toggle="modal" style="font-size: 1.1em; padding: 9px 14px"><i class="icon-code"></i></a>
+                <pre class="signature" style="margin-right: 54px;">answerTradeRequest(string|integer  <span class="argument">$tradeId</span>, \Illuminate\Http\Request  <span class="argument">$request</span>) : mixed</pre>
+                <p><em>Used to respond a trade request with answer in `boolean`</em></p>
+                <ul>
+<li>
+<p>As soon as one trader requests an advertisement, A trade is created with status <code>Trade::PENDING</code> i.e <code>0</code></p>
+</li>
+<li>
+<p>Other trader will respons with boolean answer i.e <code>true</code> if he accepts; <code>false</code> if he rejects</p>
+</li>
+<li>
+<p>If trader rejects then a trade will be updated with <code>trade_status</code> to <code>Trade::REJECTED</code></p>
+</li>
+<li>
+<p>Trade Log will be created.</p>
+</li>
+<li>
+<p>If trader accepts the request:</p>
+</li>
+<li>
+<p>If Trader is <code>seller</code> then his pending/ unprocessed withdrawal requests with balance are calculated.</p>
+</li>
+<li>
+<p>If balance is less then the requested trade amount an error will be given to seller.</p>
+</li>
+<li>
+<p>Else, advertisement with currency details is fetched and <code>fiat_value</code>, <code>commision_value</code> are calculated and trade is updated with <code>trade_status</code> of <code>Trade::OPEN</code></p>
+</li>
+<li>Trade Logs and Notifications are created.</li>
+</ul>
+
+                                    <h4>Parameters</h4>
+                    <table class="table table-condensed table-hover">
+                                                    <tr>
+                                <td>string|integer</td>
+                                <td>$tradeId </td>
+                                <td></td>
+                            </tr>
+                                                    <tr>
+                                <td>\Illuminate\Http\Request</td>
+                                <td>$request </td>
+                                <td></td>
+                            </tr>
+                                            </table>
+                
+                
+                                    <h4>Returns</h4>
+                    mixed
+                                    				
+                            </article>
+        </div>
+        <aside class="span4 detailsbar">
+            <h1><i class="icon-arrow-down"></i></h1>
+                                                            <dl>
+                                                                            </dl>
+            <h2>Tags</h2>
+            <table class="table table-condensed">
+                                    <tr><td colspan="2"><em>None found</em></td></tr>
+                            </table>
+        </aside>
+    </div>
+
+                                    <div class="row-fluid">
+        <div class="span8 content class">
+            <a id="method_getTrade" name="method_getTrade" class="anchor"></a>
+            <article class="method">
+                <h3 class="public ">getTrade()</h3>
+                <a href="#source-view" role="button" class="pull-right btn" data-toggle="modal" style="font-size: 1.1em; padding: 9px 14px"><i class="icon-code"></i></a>
+                <pre class="signature" style="margin-right: 54px;">getTrade(string|integer  <span class="argument">$tradeId</span>, \Illuminate\Http\Request  <span class="argument">$request</span>) : mixed</pre>
+                <p><em>Used to fetch trade after accepting the trade request.</em></p>
+                <ul>
+<li>
+<p>Trade status is not checked, so if trade is closed/disputed/time_out Trader will be able to read chat messages but no other operations will be allowed.</p>
+</li>
+<li>
+<p>If trade's time <code>started_at</code> plus advertisement's <code>payment_window_minutes</code> is less than current time then Trade status is updated with <code>trade_status</code> = <code>Trade::TIMED_OUT</code> as well as notification also updated as <code>timed_out</code>.</p>
+</li>
+<li>
+<p>Trader's type is identified, Trade's remaining time in seconds are calculated as per trade started_at and advertisement's payment_window_minutes.</p>
+</li>
+<li>
+<p>If coin is testnet: <code>is_coin_testnet = 1</code></p>
+</li>
+<li>Previous 10 chats of same trade id, if any, are fetched.</li>
+</ul>
+
+                                    <h4>Parameters</h4>
+                    <table class="table table-condensed table-hover">
+                                                    <tr>
+                                <td>string|integer</td>
+                                <td>$tradeId </td>
+                                <td></td>
+                            </tr>
+                                                    <tr>
+                                <td>\Illuminate\Http\Request</td>
+                                <td>$request </td>
+                                <td></td>
+                            </tr>
+                                            </table>
+                
+                
+                                    <h4>Returns</h4>
+                    mixed
+                                    				
+                            </article>
+        </div>
+        <aside class="span4 detailsbar">
+            <h1><i class="icon-arrow-down"></i></h1>
+                                                            <dl>
+                                                                            </dl>
+            <h2>Tags</h2>
+            <table class="table table-condensed">
+                                    <tr><td colspan="2"><em>None found</em></td></tr>
+                            </table>
+        </aside>
+    </div>
+
+                                    <div class="row-fluid">
+        <div class="span8 content class">
+            <a id="method_getTradeMessages" name="method_getTradeMessages" class="anchor"></a>
+            <article class="method">
+                <h3 class="public ">getTradeMessages()</h3>
+                <a href="#source-view" role="button" class="pull-right btn" data-toggle="modal" style="font-size: 1.1em; padding: 9px 14px"><i class="icon-code"></i></a>
+                <pre class="signature" style="margin-right: 54px;">getTradeMessages(string|integer  <span class="argument">$tradeId</span>, \Illuminate\Http\Request  <span class="argument">$request</span>) : mixed</pre>
+                <p><em>Since previous 10 chats are loaded in {@link \App\Http\Controllers\Home\TradeController::getTrade() getTrade()},
+this api is called to load previous to previous chats in chunks of 10.</em></p>
+                
+
+                                    <h4>Parameters</h4>
+                    <table class="table table-condensed table-hover">
+                                                    <tr>
+                                <td>string|integer</td>
+                                <td>$tradeId </td>
+                                <td></td>
+                            </tr>
+                                                    <tr>
+                                <td>\Illuminate\Http\Request</td>
+                                <td>$request </td>
+                                <td></td>
+                            </tr>
+                                            </table>
+                
+                
+                                    <h4>Returns</h4>
+                    mixed
+                                    				
+                            </article>
+        </div>
+        <aside class="span4 detailsbar">
+            <h1><i class="icon-arrow-down"></i></h1>
+                                                            <dl>
+                                                                            </dl>
+            <h2>Tags</h2>
+            <table class="table table-condensed">
+                                    <tr><td colspan="2"><em>None found</em></td></tr>
+                            </table>
+        </aside>
+    </div>
+
+                                    <div class="row-fluid">
+        <div class="span8 content class">
+            <a id="method_sendTradeMessage" name="method_sendTradeMessage" class="anchor"></a>
+            <article class="method">
+                <h3 class="public ">sendTradeMessage()</h3>
+                <a href="#source-view" role="button" class="pull-right btn" data-toggle="modal" style="font-size: 1.1em; padding: 9px 14px"><i class="icon-code"></i></a>
+                <pre class="signature" style="margin-right: 54px;">sendTradeMessage(string|integer  <span class="argument">$tradeId</span>, \Illuminate\Http\Request  <span class="argument">$request</span>) : mixed</pre>
+                <p><em>Used to create messages for a trade</em></p>
+                <ol>
+<li>
+<p>If the message is of type <code>TYPE_TEXT</code> then create the message and <code>type</code> field will be <code>TYPE_TEXT</code> and broadcast it to others on <code>TradeChatMessage</code> event.</p>
+</li>
+<li>If message is of type <code>TYPE_DOC</code> see DOC sub points else if message is of type <code>TYPE_IMAGE</code> see IMAGE sub points.</li>
+</ol>
+<p><b>DOC:</b></p>
+<ol>
+<li>
+<p>Check if the document sent is PDF after converting it to <code>base64</code> string.</p>
+</li>
+<li>
+<p>Open PDF file and try to read so that only readable pdf is uploaded avoiding corrupt pdfs.</p>
+</li>
+<li>
+<p>Read first line of pdf to get version of the pdf.</p>
+</li>
+<li>
+<p>If the PDF version is greater than 1.4 then convert the original pdf's version to 1.5 as it is more compatible to our application</p>
+</li>
+<li>
+<p>Add watermark to every page of the pdf.</p>
+</li>
+<li>
+<p>Create an entry in the mongo for the dispute chat where field <code>content</code> is an associative array having keys <code>data</code> and <code>file_name</code> and <code>type</code> field is <code>TYPE_DOC</code></p>
+</li>
+<li>Broadcast it to others on <code>DisputeChatMessage</code> event.</li>
+</ol>
+<p><b>IMAGE:</b></p>
+<ol>
+<li>
+<p>Convert Image to <code>base64</code> string</p>
+</li>
+<li>
+<p>Get image type and allowed image types are <code>image/jpeg</code>, <code>image/jpg</code>, <code>image/JPG</code>, <code>image/JPEG</code>, <code>image/png</code>, <code>PNG</code></p>
+</li>
+<li>
+<p>Add watermark to the image.</p>
+</li>
+<li>Create an entry in the mongo for the trade chat where field <code>content</code> is base64 string of the uploaded image and <code>type</code> field is <code>TYPE_DOC</code></li>
+</ol>
+
+                                    <h4>Parameters</h4>
+                    <table class="table table-condensed table-hover">
+                                                    <tr>
+                                <td>string|integer</td>
+                                <td>$tradeId </td>
+                                <td></td>
+                            </tr>
+                                                    <tr>
+                                <td>\Illuminate\Http\Request</td>
+                                <td>$request </td>
+                                <td></td>
+                            </tr>
+                                            </table>
+                
+                                    <h4>Throws</h4>
+                    <dl>
+                                                    <dt>\setasign\Fpdi\PdfParser\CrossReference\CrossReferenceException</dt>
+                            <dd></dd>
+                                                    <dt>\setasign\Fpdi\PdfParser\Filter\FilterException</dt>
+                            <dd></dd>
+                                                    <dt>\setasign\Fpdi\PdfParser\PdfParserException</dt>
+                            <dd></dd>
+                                                    <dt>\setasign\Fpdi\PdfParser\Type\PdfTypeException</dt>
+                            <dd></dd>
+                                                    <dt>\setasign\Fpdi\PdfReader\PdfReaderException</dt>
+                            <dd></dd>
+                                                                    </dl>
+                
+                                    <h4>Returns</h4>
+                    mixed
+                                    				
+                            </article>
+        </div>
+        <aside class="span4 detailsbar">
+            <h1><i class="icon-arrow-down"></i></h1>
+                                                            <dl>
+                                                                            </dl>
+            <h2>Tags</h2>
+            <table class="table table-condensed">
+                                    <tr><td colspan="2"><em>None found</em></td></tr>
+                            </table>
+        </aside>
+    </div>
+
+                                    <div class="row-fluid">
+        <div class="span8 content class">
+            <a id="method_downloadChatMessagePdf" name="method_downloadChatMessagePdf" class="anchor"></a>
+            <article class="method">
+                <h3 class="public ">downloadChatMessagePdf()</h3>
+                <a href="#source-view" role="button" class="pull-right btn" data-toggle="modal" style="font-size: 1.1em; padding: 9px 14px"><i class="icon-code"></i></a>
+                <pre class="signature" style="margin-right: 54px;">downloadChatMessagePdf(string|integer  <span class="argument">$tradeId</span>, \Illuminate\Http\Request  <span class="argument">$request</span>) : \Symfony\Component\HttpFoundation\StreamedResponse</pre>
+                <p><em>Used to download PDF.</em></p>
+                
+
+                                    <h4>Parameters</h4>
+                    <table class="table table-condensed table-hover">
+                                                    <tr>
+                                <td>string|integer</td>
+                                <td>$tradeId </td>
+                                <td></td>
+                            </tr>
+                                                    <tr>
+                                <td>\Illuminate\Http\Request</td>
+                                <td>$request </td>
+                                <td></td>
+                            </tr>
+                                            </table>
+                
+                
+                                    <h4>Returns</h4>
+                    \Symfony\Component\HttpFoundation\StreamedResponse
+                                    				
+                            </article>
+        </div>
+        <aside class="span4 detailsbar">
+            <h1><i class="icon-arrow-down"></i></h1>
+                                                            <dl>
+                                                                            </dl>
+            <h2>Tags</h2>
+            <table class="table table-condensed">
+                                    <tr><td colspan="2"><em>None found</em></td></tr>
+                            </table>
+        </aside>
+    </div>
+
+                                    <div class="row-fluid">
+        <div class="span8 content class">
+            <a id="method_markChatMessageRead" name="method_markChatMessageRead" class="anchor"></a>
+            <article class="method">
+                <h3 class="public ">markChatMessageRead()</h3>
+                <a href="#source-view" role="button" class="pull-right btn" data-toggle="modal" style="font-size: 1.1em; padding: 9px 14px"><i class="icon-code"></i></a>
+                <pre class="signature" style="margin-right: 54px;">markChatMessageRead(string|integer  <span class="argument">$tradeId</span>, \Illuminate\Http\Request  <span class="argument">$request</span>) : mixed</pre>
+                <p><em>By default every chat messages&#039; `read_at` field is `null`,</em></p>
+                <p>In vue, when a trader focuses on chat input box, this api is fired and whichever chats' <code>read_at</code> are null, are updated with current date and time.</p>
+<p>In other platform like android/IPhone, the event may be other but functionality should be the same.</p>
+
+                                    <h4>Parameters</h4>
+                    <table class="table table-condensed table-hover">
+                                                    <tr>
+                                <td>string|integer</td>
+                                <td>$tradeId </td>
+                                <td></td>
+                            </tr>
+                                                    <tr>
+                                <td>\Illuminate\Http\Request</td>
+                                <td>$request </td>
+                                <td></td>
+                            </tr>
+                                            </table>
+                
+                
+                                    <h4>Returns</h4>
+                    mixed
+                                    				
+                            </article>
+        </div>
+        <aside class="span4 detailsbar">
+            <h1><i class="icon-arrow-down"></i></h1>
+                                                            <dl>
+                                                                            </dl>
+            <h2>Tags</h2>
+            <table class="table table-condensed">
+                                    <tr><td colspan="2"><em>None found</em></td></tr>
+                            </table>
+        </aside>
+    </div>
+
+                                    <div class="row-fluid">
+        <div class="span8 content class">
+            <a id="method_confirmPaymentByBuyer" name="method_confirmPaymentByBuyer" class="anchor"></a>
+            <article class="method">
+                <h3 class="public ">confirmPaymentByBuyer()</h3>
+                <a href="#source-view" role="button" class="pull-right btn" data-toggle="modal" style="font-size: 1.1em; padding: 9px 14px"><i class="icon-code"></i></a>
+                <pre class="signature" style="margin-right: 54px;">confirmPaymentByBuyer(string|integer  <span class="argument">$tradeId</span>, \Illuminate\Http\Request  <span class="argument">$request</span>) : mixed</pre>
+                <p><em>This method is executed when buyer confirms a payment.</em></p>
+                <p>buyer can do it multiple times since payments are done in parts not in whole.</p>
+<ul>
+<li>
+<p><code>BuyerConfirmedPayment</code> event is fired and seller listen this event.</p>
+</li>
+<li>
+<p>Chat Message is created where <code>type</code> is <code>ChatMessage::TYPE_ACTION</code> and <code>content</code> is an associative array with
+currently one key <code>action_type</code> with value <code>ChatMessage::ACTION_BUYER_CONFIRMED_PAYMENT</code>.</p>
+</li>
+<li>Once all payment are done, seller uses <a href="../classes/App.Http.Controllers.Home.TradeController.html#method_paymentRecievedBySeller">paymentRecievedBySeller()</a> method.</li>
+</ul>
+
+                                    <h4>Parameters</h4>
+                    <table class="table table-condensed table-hover">
+                                                    <tr>
+                                <td>string|integer</td>
+                                <td>$tradeId </td>
+                                <td></td>
+                            </tr>
+                                                    <tr>
+                                <td>\Illuminate\Http\Request</td>
+                                <td>$request </td>
+                                <td></td>
+                            </tr>
+                                            </table>
+                
+                
+                                    <h4>Returns</h4>
+                    mixed
+                                    				
+                            </article>
+        </div>
+        <aside class="span4 detailsbar">
+            <h1><i class="icon-arrow-down"></i></h1>
+                                                            <dl>
+                                                                            </dl>
+            <h2>Tags</h2>
+            <table class="table table-condensed">
+                                    <tr><td colspan="2"><em>None found</em></td></tr>
+                            </table>
+        </aside>
+    </div>
+
+                                    <div class="row-fluid">
+        <div class="span8 content class">
+            <a id="method_paymentRecievedBySeller" name="method_paymentRecievedBySeller" class="anchor"></a>
+            <article class="method">
+                <h3 class="public ">paymentRecievedBySeller()</h3>
+                <a href="#source-view" role="button" class="pull-right btn" data-toggle="modal" style="font-size: 1.1em; padding: 9px 14px"><i class="icon-code"></i></a>
+                <pre class="signature" style="margin-right: 54px;">paymentRecievedBySeller(string|integer  <span class="argument">$tradeId</span>, \Illuminate\Http\Request  <span class="argument">$request</span>) : mixed</pre>
+                <p><em>Seller uses this to acknowledge buyer about a complete payment.</em></p>
+                <ul>
+<li>
+<p>Seller can not use this method unless buyer has not confirmed payment <a href="../classes/App.Http.Controllers.Home.TradeController.html#method_confirmPaymentByBuyer">confirmPaymentByBuyer()</a></p>
+</li>
+<li>
+<p><code>SellerReceivedPayment</code> event is fired and <code>did_seller_received_payment = 1</code> set for that trade.</p>
+</li>
+<li>Chat Message is created where <code>type</code> is <code>ChatMessage::TYPE_ACTION</code> and <code>content</code> is an associative array with
+currently one key <code>action_type</code> with value <code>ChatMessage::ACTION_SELLER_RECEIVED_PAYMENT</code>.</li>
+</ul>
+
+                                    <h4>Parameters</h4>
+                    <table class="table table-condensed table-hover">
+                                                    <tr>
+                                <td>string|integer</td>
+                                <td>$tradeId </td>
+                                <td></td>
+                            </tr>
+                                                    <tr>
+                                <td>\Illuminate\Http\Request</td>
+                                <td>$request </td>
+                                <td></td>
+                            </tr>
+                                            </table>
+                
+                
+                                    <h4>Returns</h4>
+                    mixed
+                                    				
+                            </article>
+        </div>
+        <aside class="span4 detailsbar">
+            <h1><i class="icon-arrow-down"></i></h1>
+                                                            <dl>
+                                                                            </dl>
+            <h2>Tags</h2>
+            <table class="table table-condensed">
+                                    <tr><td colspan="2"><em>None found</em></td></tr>
+                            </table>
+        </aside>
+    </div>
+
+                                    <div class="row-fluid">
+        <div class="span8 content class">
+            <a id="method_releaseCoinBySeller" name="method_releaseCoinBySeller" class="anchor"></a>
+            <article class="method">
+                <h3 class="public ">releaseCoinBySeller()</h3>
+                <a href="#source-view" role="button" class="pull-right btn" data-toggle="modal" style="font-size: 1.1em; padding: 9px 14px"><i class="icon-code"></i></a>
+                <pre class="signature" style="margin-right: 54px;">releaseCoinBySeller(string|integer  <span class="argument">$tradeId</span>, \Illuminate\Http\Request  <span class="argument">$request</span>) : mixed</pre>
+                <p><em>Method called when seller releases the coins.</em></p>
+                <ul>
+<li>
+<p>Buyer and seller both have to confirm payments.</p>
+</li>
+<li>
+<p>Seller has to pass Authorization challenge of brain keys before releasing coins.</p>
+</li>
+<li>
+<p>Transactions are created for both traders.</p>
+</li>
+<li>
+<p>Balance is updated to both traders and completed trades count is incremented by 1.</p>
+</li>
+<li>
+<p>Notification of trade is updated to <code>completed</code></p>
+</li>
+<li>
+<p>Trade is updated with <code>trade_status = Trade::CLOSED</code>.</p>
+</li>
+<li>Chat Message is created where <code>type = TYPE_ACTION</code> and <code>content = ['action_type' =&gt; ChatMessage::ACTION_SELLER_RELEASED_COIN]</code></li>
+</ul>
+
+                                    <h4>Parameters</h4>
+                    <table class="table table-condensed table-hover">
+                                                    <tr>
+                                <td>string|integer</td>
+                                <td>$tradeId </td>
+                                <td></td>
+                            </tr>
+                                                    <tr>
+                                <td>\Illuminate\Http\Request</td>
+                                <td>$request </td>
+                                <td></td>
+                            </tr>
+                                            </table>
+                
+                
+                                    <h4>Returns</h4>
+                    mixed
+                                    				
+                            </article>
+        </div>
+        <aside class="span4 detailsbar">
+            <h1><i class="icon-arrow-down"></i></h1>
+                                                            <dl>
+                                                                            </dl>
+            <h2>Tags</h2>
+            <table class="table table-condensed">
+                                    <tr><td colspan="2"><em>None found</em></td></tr>
+                            </table>
+        </aside>
+    </div>
+
+                                    <div class="row-fluid">
+        <div class="span8 content class">
+            <a id="method_coinRecievedByBuyer" name="method_coinRecievedByBuyer" class="anchor"></a>
+            <article class="method">
+                <h3 class="public deprecated">coinRecievedByBuyer()</h3>
+                <a href="#source-view" role="button" class="pull-right btn" data-toggle="modal" style="font-size: 1.1em; padding: 9px 14px"><i class="icon-code"></i></a>
+                <pre class="signature" style="margin-right: 54px;">coinRecievedByBuyer(string|integer  <span class="argument">$tradeId</span>, \Illuminate\Http\Request  <span class="argument">$request</span>) : mixed</pre>
+                <p><em></em></p>
+                
+
+                                    <h4>Parameters</h4>
+                    <table class="table table-condensed table-hover">
+                                                    <tr>
+                                <td>string|integer</td>
+                                <td>$tradeId </td>
+                                <td></td>
+                            </tr>
+                                                    <tr>
+                                <td>\Illuminate\Http\Request</td>
+                                <td>$request </td>
+                                <td></td>
+                            </tr>
+                                            </table>
+                
+                
+                                    <h4>Returns</h4>
+                    mixed
+                                    				
+                            </article>
+        </div>
+        <aside class="span4 detailsbar">
+            <h1><i class="icon-arrow-down"></i></h1>
+                                                                <aside class="alert alert-block alert-error">
+                    <h4>Deprecated</h4>
+                    This is no more required now as its corresponding api: `buyer-recieved-coin` is removed.
+                </aside>
+                        <dl>
+                                                                            </dl>
+            <h2>Tags</h2>
+            <table class="table table-condensed">
+                                    <tr><td colspan="2"><em>None found</em></td></tr>
+                            </table>
+        </aside>
+    </div>
+
+                                    <div class="row-fluid">
+        <div class="span8 content class">
+            <a id="method_cancelTrade" name="method_cancelTrade" class="anchor"></a>
+            <article class="method">
+                <h3 class="public ">cancelTrade()</h3>
+                <a href="#source-view" role="button" class="pull-right btn" data-toggle="modal" style="font-size: 1.1em; padding: 9px 14px"><i class="icon-code"></i></a>
+                <pre class="signature" style="margin-right: 54px;">cancelTrade(string|integer  <span class="argument">$tradeId</span>, \Illuminate\Http\Request  <span class="argument">$request</span>) : mixed</pre>
+                <p><em>Used to cancel a trade but if buyer has confirmed payment then it is not allowed to cancel a trade.</em></p>
+                <ul>
+<li>
+<p>Trade Logs are created.</p>
+</li>
+<li>
+<p>Traders' cancel trades count are incremented by 1.</p>
+</li>
+<li>Trade's <code>trade_cancelled_by</code> is updated by the user's id who cancelled the trade.</li>
+</ul>
+
+                                    <h4>Parameters</h4>
+                    <table class="table table-condensed table-hover">
+                                                    <tr>
+                                <td>string|integer</td>
+                                <td>$tradeId </td>
+                                <td></td>
+                            </tr>
+                                                    <tr>
+                                <td>\Illuminate\Http\Request</td>
+                                <td>$request </td>
+                                <td></td>
+                            </tr>
+                                            </table>
+                
+                
+                                    <h4>Returns</h4>
+                    mixed
+                                    				
+                            </article>
+        </div>
+        <aside class="span4 detailsbar">
+            <h1><i class="icon-arrow-down"></i></h1>
+                                                            <dl>
+                                                                            </dl>
+            <h2>Tags</h2>
+            <table class="table table-condensed">
+                                    <tr><td colspan="2"><em>None found</em></td></tr>
+                            </table>
+        </aside>
+    </div>
+
+                                    <div class="row-fluid">
+        <div class="span8 content class">
+            <a id="method_disputeCalled" name="method_disputeCalled" class="anchor"></a>
+            <article class="method">
+                <h3 class="public ">disputeCalled()</h3>
+                <a href="#source-view" role="button" class="pull-right btn" data-toggle="modal" style="font-size: 1.1em; padding: 9px 14px"><i class="icon-code"></i></a>
+                <pre class="signature" style="margin-right: 54px;">disputeCalled(string|integer  <span class="argument">$tradeId</span>, \Illuminate\Http\Request  <span class="argument">$request</span>) : mixed</pre>
+                <p><em>Fired when a user decides to raise a dispute.</em></p>
+                <ul>
+<li>
+<p>Assigns an available cs/admin to this dispute.</p>
+</li>
+<li>
+<p><code>DisputeRaised</code>  event is broadcasted.</p>
+</li>
+<li>
+<p>Trade is updated with <code>trade_status = Trade::DISPUTE_OPEN</code></p>
+</li>
+<li>
+<p>Trade notification is updated with <code>dispute_open</code>.</p>
+</li>
+<li>
+<p>Trade log is created for this dispute with who has raised it.</p>
+</li>
+<li>Chat Message is created where <code>type = TYPE_ACTION</code> and <code>content = ['action_type' =&gt; ChatMessage::ACTION_DISPUTE_RAISED]</code></li>
+</ul>
+
+                                    <h4>Parameters</h4>
+                    <table class="table table-condensed table-hover">
+                                                    <tr>
+                                <td>string|integer</td>
+                                <td>$tradeId </td>
+                                <td></td>
+                            </tr>
+                                                    <tr>
+                                <td>\Illuminate\Http\Request</td>
+                                <td>$request </td>
+                                <td></td>
+                            </tr>
+                                            </table>
+                
+                
+                                    <h4>Returns</h4>
+                    mixed
+                                    				
+                            </article>
+        </div>
+        <aside class="span4 detailsbar">
+            <h1><i class="icon-arrow-down"></i></h1>
+                                                            <dl>
+                                                                            </dl>
+            <h2>Tags</h2>
+            <table class="table table-condensed">
+                                    <tr><td colspan="2"><em>None found</em></td></tr>
+                            </table>
+        </aside>
+    </div>
+
+                                    <div class="row-fluid">
+        <div class="span8 content class">
+            <a id="method_tradeFeedback" name="method_tradeFeedback" class="anchor"></a>
+            <article class="method">
+                <h3 class="public ">tradeFeedback()</h3>
+                <a href="#source-view" role="button" class="pull-right btn" data-toggle="modal" style="font-size: 1.1em; padding: 9px 14px"><i class="icon-code"></i></a>
+                <pre class="signature" style="margin-right: 54px;">tradeFeedback(integer  <span class="argument">$tradeId</span>, \Illuminate\Http\Request  <span class="argument">$request</span>) : mixed</pre>
+                <p><em>A trader gives Trusted Score and feedback to another trader involved in the trade after completion of trade</em></p>
+                <p>If user is seller then buyer's <code>user_coin</code> will be updated with average <code>trusted_trade_score</code></p>
+<p>If user is buyer then seller's <code>user_coin</code> will be updated with average <code>trusted_trade_score</code></p>
+<p>if feedback is given then it will be saved in <code>user_feedbacks</code> table</p>
+<p>If feedback is already given then it will just update the score but no operations in feedback allowed.</p>
+
+                                    <h4>Parameters</h4>
+                    <table class="table table-condensed table-hover">
+                                                    <tr>
+                                <td>integer</td>
+                                <td>$tradeId </td>
+                                <td></td>
+                            </tr>
+                                                    <tr>
+                                <td>\Illuminate\Http\Request</td>
+                                <td>$request </td>
+                                <td><p><code>score</code> is compulsory,  <code>feedback</code> is optional</p></td>
+                            </tr>
+                                            </table>
+                
+                
+                                    <h4>Returns</h4>
+                    mixed
+                                    				
+                            </article>
+        </div>
+        <aside class="span4 detailsbar">
+            <h1><i class="icon-arrow-down"></i></h1>
+                                                            <dl>
+                                                                                            <dt>See also</dt>
+                                                                <dd><a href="../classes/App.Http.Controllers.Home.TradeController.html#method_calculateTrustedTradeScoreOfUser"><span class="namespace-wrapper">How Trusted Score is calculated ?</span></a></dd>
+                                                                </dl>
+            <h2>Tags</h2>
+            <table class="table table-condensed">
+                                    <tr><td colspan="2"><em>None found</em></td></tr>
+                            </table>
+        </aside>
+    </div>
+
+                                    <div class="row-fluid">
+        <div class="span8 content class">
+            <a id="method_getDisputeReasons" name="method_getDisputeReasons" class="anchor"></a>
+            <article class="method">
+                <h3 class="public ">getDisputeReasons()</h3>
+                <a href="#source-view" role="button" class="pull-right btn" data-toggle="modal" style="font-size: 1.1em; padding: 9px 14px"><i class="icon-code"></i></a>
+                <pre class="signature" style="margin-right: 54px;">getDisputeReasons(string|integer  <span class="argument">$tradeId</span>) : mixed</pre>
+                <p><em>Before raising a dispute trader needs to select dispute reason.</em></p>
+                <p>Dispute reasons are different types of traders like:</p>
+<p>If trader is Buyer then fetch all the reasons applicable for Buyer likewise</p>
+<p>For seller there are reasons applicable for Sellers only.</p>
+
+                                    <h4>Parameters</h4>
+                    <table class="table table-condensed table-hover">
+                                                    <tr>
+                                <td>string|integer</td>
+                                <td>$tradeId </td>
+                                <td></td>
+                            </tr>
+                                            </table>
+                
+                
+                                    <h4>Returns</h4>
+                    mixed
+                                    				
+                            </article>
+        </div>
+        <aside class="span4 detailsbar">
+            <h1><i class="icon-arrow-down"></i></h1>
+                                                            <dl>
+                                                                            </dl>
+            <h2>Tags</h2>
+            <table class="table table-condensed">
+                                    <tr><td colspan="2"><em>None found</em></td></tr>
+                            </table>
+        </aside>
+    </div>
+
+                                                    <div class="row-fluid">
+        <div class="span8 content class">
+            <a id="method_calculateTrustedTradeScoreOfUser" name="method_calculateTrustedTradeScoreOfUser" class="anchor"></a>
+            <article class="method">
+                <h3 class="protected ">calculateTrustedTradeScoreOfUser()</h3>
+                <a href="#source-view" role="button" class="pull-right btn" data-toggle="modal" style="font-size: 1.1em; padding: 9px 14px"><i class="icon-code"></i></a>
+                <pre class="signature" style="margin-right: 54px;">calculateTrustedTradeScoreOfUser(integer  <span class="argument">$userId</span>) : float|integer</pre>
+                <p><em>Calculates Average Trusted Trade Score of a user.</em></p>
+                <ul>
+<li>
+<p>Get completed / Dispute_closed trades in which the user is involved.</p>
+</li>
+<li>
+<p>Loop through each trade</p>
+</li>
+<li>
+<p>If user is seller in the individual trade then take 'seller_trust_score' and add in <code>$totalScore</code></p>
+</li>
+<li>
+<p>If user is buyer in the individual trade then take 'buyer_trust_score' and add in <code>$totalScore</code></p>
+</li>
+<li>then take the average of <code>$totalScore</code> and return</li>
+</ul>
+
+                                    <h4>Parameters</h4>
+                    <table class="table table-condensed table-hover">
+                                                    <tr>
+                                <td>integer</td>
+                                <td>$userId </td>
+                                <td></td>
+                            </tr>
+                                            </table>
+                
+                
+                                    <h4>Returns</h4>
+                    float|integer
+                                    				
+                            </article>
+        </div>
+        <aside class="span4 detailsbar">
+            <h1><i class="icon-arrow-down"></i></h1>
+                                                            <dl>
+                                                                            </dl>
+            <h2>Tags</h2>
+            <table class="table table-condensed">
+                                    <tr><td colspan="2"><em>None found</em></td></tr>
+                            </table>
+        </aside>
+    </div>
+
+                                                    <div class="row-fluid">
+        <div class="span8 content class">
+            <a id="method_tradeStatusMessage" name="method_tradeStatusMessage" class="anchor"></a>
+            <article class="method">
+                <h3 class="private ">tradeStatusMessage()</h3>
+                <a href="#source-view" role="button" class="pull-right btn" data-toggle="modal" style="font-size: 1.1em; padding: 9px 14px"><i class="icon-code"></i></a>
+                <pre class="signature" style="margin-right: 54px;">tradeStatusMessage(integer  <span class="argument">$status</span>) : string</pre>
+                <p><em>A common function to return `message` string for corresponding `trade_status`</em></p>
+                
+
+                                    <h4>Parameters</h4>
+                    <table class="table table-condensed table-hover">
+                                                    <tr>
+                                <td>integer</td>
+                                <td>$status </td>
+                                <td></td>
+                            </tr>
+                                            </table>
+                
+                
+                                    <h4>Returns</h4>
+                    string
+                                    				
+                            </article>
+        </div>
+        <aside class="span4 detailsbar">
+            <h1><i class="icon-arrow-down"></i></h1>
+                                                            <dl>
+                                                                            </dl>
+            <h2>Tags</h2>
+            <table class="table table-condensed">
+                                    <tr><td colspan="2"><em>None found</em></td></tr>
+                            </table>
+        </aside>
+    </div>
+
+                                    </div>
+    </section>
+
+    <div id="source-view" class="modal hide fade" tabindex="-1" role="dialog" aria-labelledby="source-view-label" aria-hidden="true">
+        <div class="modal-header">
+            <button type="button" class="close" data-dismiss="modal" aria-hidden="true">×</button>
+            <h3 id="source-view-label">TradeController.php</h3>
+        </div>
+        <div class="modal-body">
+            <pre data-src="../files/Http/Controllers/Home/TradeController.php.txt" class="language-php line-numbers"></pre>
+        </div>
+    </div>
+
+    <footer class="row-fluid">
+        <section class="span10 offset2">
+            <section class="row-fluid">
+                <section class="span10 offset1">
+                    <section class="row-fluid footer-sections">
+                        <section class="span4">
+                                                        <h1><i class="icon-code"></i></h1>
+                            <div>
+                                <ul>
+                                                                            <li><a href="../namespaces/App.html">\App</a></li>
+                                                                            <li><a href="../namespaces/Murich.html">\Murich</a></li>
+                                                                    </ul>
+                            </div>
+                        </section>
+                        <section class="span4">
+                                                        <h1><i class="icon-bar-chart"></i></h1>
+                            <div>
+                                <ul>
+                                    <li><a href="../graphs/class.html">Class Hierarchy Diagram</a></li>
+                                </ul>
+                            </div>
+                        </section>
+                        <section class="span4">
+                                                        <h1><i class="icon-pushpin"></i></h1>
+                            <div>
+                                <ul>
+                                    <li><a href="../reports/errors.html">Errors</a></li>
+                                    <li><a href="../reports/markers.html">Markers</a></li>
+                                </ul>
+                            </div>
+                        </section>
+                    </section>
+                </section>
+            </section>
+            <section class="row-fluid">
+                <section class="span10 offset1">
+                    <hr />
+                    Documentation is powered by <a href="http://www.phpdoc.org/">phpDocumentor </a> and authored
+                    on January 8th, 2019 at 06:59.
+                </section>
+            </section>
+        </section>
+    </footer>
+</div>
+
+</body>
+</html>

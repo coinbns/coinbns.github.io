@@ -1,0 +1,42 @@
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use Illuminate\Http\Request;
+use App\Http\Controllers\Controller;
+use App\Events\ErrorBroadcasting;
+use App\Models\Dispute;
+use Validator;
+use Storage;
+use Illuminate\Support\Facades\Crypt;
+use App\Events\DisputeGuiltyFound;
+
+
+class TestingController extends Controller
+{
+    public function dateArraySort()
+    {
+        $arr = array('11-01-2012.', '01-01-2014', '01-01-2015', '09-02-2013', '01-01-2013');
+        usort($arr,array($this,'date_sort'));
+        dd($arr);
+    }
+
+    public static function date_sort($a, $b)
+    {
+        return strtotime($a) - strtotime($b);
+    }
+
+    public function mockGuilty($disputeId,$userId,$yesNo)
+    {
+        if(strtoupper(strtoupper($yesNo)=='Y')){
+            $guilty=1;
+            $message='Your are guilty for the trade, bahut shaana banta hai haan...!';
+        }else{
+            $guilty=0;
+            $message='You are as innocent as Dinesh...jaa jeele apni zindgi..!!!';
+        }
+
+        broadcast(new DisputeGuiltyFound($disputeId, $userId, $message, $guilty))->toOthers();
+    }
+}
+

@@ -1,0 +1,57 @@
+<?php
+
+namespace App;
+
+use Zizaco\Entrust\EntrustRole;
+
+class Role extends EntrustRole
+{
+    //roles
+    Const SUPER = 'Super';
+    protected $fillable = ['name', 'description', 'display_name'];
+
+    public static function createRole($data)
+    {
+        $role = new self;
+
+        $role->name = $data['name'];
+        $role->display_name = $data['display_name'];
+        $role->description = $data['description'];
+        return $role->save();
+    }
+
+    public static function findById($id)
+    {
+        return self::where('id', $id)->first();
+    }
+
+    public static function updateRole($id, $name, $displayName, $description)
+    {
+        return self::where('id', $id)->update([
+            'name' => $name,
+            'display_name' => $displayName,
+            'description' => $description
+        ]);
+    }
+
+    public static function getChildRoleIdByParentRoleId($parent_id_array)
+    {
+        return self::select('id')->wherein('parent_role_id',$parent_id_array)->get();
+    }
+
+    public static function getRolesByIds($ids)
+    {
+        return self::wherein('id',$ids)->get();
+    }
+
+    public static function getRolesExceptSuper()
+    {
+        return self::where('name', '!=', self::SUPER)->get();
+    }
+
+    public function permissions()
+    {
+        return $this->belongsToMany(Permission::class);
+    }
+}
+

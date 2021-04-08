@@ -1,0 +1,27 @@
+<?php
+
+namespace App;
+
+use Laravel\Passport\HasApiTokens;
+use Illuminate\Notifications\Notifiable;
+use Illuminate\Foundation\Auth\User as Authenticatable;
+
+class Cs_user extends Authenticatable
+{
+    use HasApiTokens, Notifiable;
+
+    /**
+     * The attributes that should be hidden for arrays.
+     *
+     * @var array
+     */
+    protected $hidden = [
+        'password',
+    ];
+
+    public static function findByUsername($username)
+    {
+        return self::where('username', $username)->first();
+    }
+}
+

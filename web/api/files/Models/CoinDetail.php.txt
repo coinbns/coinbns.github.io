@@ -1,0 +1,63 @@
+<?php
+
+namespace App\Models;
+
+use App\Models\Model;
+
+/**
+ * A coin has exact one set of details and these details are:
+ *
+ * 1. There are five levels for each coin which show that a trade can be performed to till that much amount.
+ *
+ * 2. These levels are in relation with `user_coins` table where a user's `max_trade_amount` will also be affected(depreciated).
+ *
+ * 3. Trade fee per trade per coin,
+ *
+ * 4. block chain Url where the coin will hit for transaction.
+ *
+ *
+ * Class CoinDetail
+ * @package App\Models
+ */
+class CoinDetail extends Model
+{
+    //status
+    const DELETED=0;
+    const ACTIVE = 1;
+    const INACTIVE = 2;
+
+    protected $casts = [
+        'misc_data' => 'array',
+    ];
+
+    /*Create Queries Start*/
+    public static function createDetail($data)
+    {
+        $coinDetail = new self;
+
+        $coinDetail->coin_id = $data['coin_id'];
+        $coinDetail->max_ad_limit = $data['max_ad_limit'];
+        $coinDetail->trade_fee_percentage = $data['trade_fee_percentage'];
+        $coinDetail->featured_ad_trade_fee_percentage = $data['featured_ad_trade_fee_percentage'];
+        $coinDetail->merchant_fee_percentage = $data['merchant_fee_percentage'];
+        $coinDetail->withdrawal_fee = $data['withdrawal_fee'];
+        $coinDetail->bip_path_start = $data['bip_path_start'];
+        $coinDetail->broadcast_tx_url = $data['broadcast_tx_url'];
+        $coinDetail->broadcast_tx_key = $data['broadcast_tx_key'];
+        $coinDetail->script_type = $data['script_type'];
+        $coinDetail->misc_data = $data['misc_data'];
+        $coinDetail->status = $data['status'];
+
+        return $coinDetail->save();
+    }
+    /*Create Queries End*/
+
+
+    /*Find Queries Start*/
+    public static function findByCoinId($coinId)
+    {
+        return self::active()->where('coin_id', $coinId)->first();
+    }
+    /*Find Queries End*/
+}
+

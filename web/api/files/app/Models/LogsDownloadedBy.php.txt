@@ -1,0 +1,37 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+
+class LogsDownloadedBy extends Model
+{
+    protected $table = 'logs_downloaded_by';
+
+    /*Create Queries Start*/
+    public static function createDownloadReason($data)
+    {
+        $downloadReason = new self();
+
+        $downloadReason->admin_id = $data['admin_id'];
+        $downloadReason->reason = $data['reason'];
+        $downloadReason->from_date = $data['from_date'];
+        $downloadReason->to_date = $data['to_date'];
+
+        return $downloadReason->save();
+    }
+    /*Create Queries End*/
+
+    /*Get Queries Start*/
+    public static function getHistory()
+    {
+        return self::from('logs_downloaded_by As by')
+            ->join('admins As adm','adm.id','=','by.admin_id')
+            ->select(
+                'by.*',
+                'adm.username'
+            )->get();
+    }
+    /*Get Queries End*/
+}
+

@@ -1,0 +1,46 @@
+<?php
+
+namespace App\Http\Middleware;
+
+use Closure;
+use Storage;
+
+class EvaluateRouteDisability
+{
+    /**
+     * Evaluates if an route has been disabled
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @param  \Closure  $next
+     * @param  string $routeCategory 
+     * @return mixed
+     */
+    public function handle($request, Closure $next, $routeCategory)
+    {
+        if (Storage::exists('coin_disabilities.json')) {
+            $coinDisabilities = json_decode(Storage::get('coin_disabilities.json'), true);
+            if (false == empty($coinDisabilities[$request->coin])) {
+                if (in_array($routeCategory, $coinDisabilities[$request->coin])) {
+                    switch ($routeCategory) {
+                        case 'trade':
+                            $message = "Trades for {$request->coin} are disabled";
+                            break;
+                        case 'deposit':
+                            $message = "Deposits for {$request->coin} are disabled";
+                            break;
+                        case 'withdrawal':
+                            $message = "Withdrawals for {$request->coin} are disabled";
+                            break;
+                        default:
+                            $message = 'Default disablity';
+                            break;
+                    }
+                    return response()->api(false, $message, null);
+                }
+            }
+        }
+
+        return $next($request);
+    }
+}
+

@@ -1,0 +1,57 @@
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use App\Http\Controllers\Controller;
+use Illuminate\Http\Request;
+use phpseclib\Crypt\RSA;
+use Validator;
+use Storage;
+
+class KeyController extends Controller
+{
+    public function viewTrePublicKey()
+    {
+        try {
+            $nodePubKey = file_get_contents(storage_path('key/node-public.key'));
+        }
+        catch(\Exception $e) {
+            $nodePubKey = null;
+        }
+        try {
+            $laraPubKey = file_get_contents(storage_path('key/lara-public.key'));
+        }
+        catch(\Exception $e) {
+            $this->generateKeyPair();
+            $laraPubKey = file_get_contents(storage_path('key/lara-public.key'));
+        }
+        
+        return view('admin.key.public_key', compact('nodePubKey', 'laraPubKey'));
+    }
+
+    public function updatePyPublicKey(Request $request)
+    {
+        $validator = request()->validate([
+            'public_key' => 'required'
+        ]);
+
+        file_put_contents(storage_path('key/node-public.key'), $request->public_key);
+        
+        return redirect()->back();
+    }
+
+    private function generateKeyPair()
+    {
+        $rsa = new RSA;
+        $keys = $rsa->createKey(4096);
+
+        list($publicKey, $privateKey) = [
+            storage_path('key/lara-public.key'),
+            storage_path('key/lara-private.key'),
+        ];
+
+        file_put_contents($publicKey, array_get($keys, 'publickey'));
+        file_put_contents($privateKey, array_get($keys, 'privatekey'));
+    }
+}
+

@@ -1,0 +1,116 @@
+<?php
+
+namespace App\Console\Commands;
+
+use App\Mail\EmailNewsletterForBlogPosts;
+use Illuminate\Console\Command;
+use App\Models\EmailCampaign;
+use App\Models\BlogPost;
+use App\Models\NewsletterEmail;
+use App\Models\User;
+use Illuminate\Support\Facades\Mail;
+
+class EmailNewsletters extends Command
+{
+    /**
+     * The name and signature of the console command.
+     *
+     * @var string
+     */
+    protected $signature = 'email:newsletters';
+
+    /**
+     * The console command description.
+     *
+     * @var string
+     */
+    protected $description = 'Send newsletter to subscribers';
+
+    /**
+     * Create a new command instance.
+     *
+     * @return void
+     */
+    public function __construct()
+    {
+        parent::__construct();
+    }
+
+    /**
+     * Execute the console command.
+     *
+     * @todo Add this cron entry to server: * * * * * php /path-to-your-project/artisan schedule:run >> /dev/null 2>&1
+     *
+     * @return mixed
+     */
+    public function handle()
+    {
+        //fetching active campaigns and update status of timedout campaigns.
+        $timed_out_campaign_ids = [];
+
+        $campaigns = EmailCampaign::getActiveCampaigns();
+        foreach($campaigns as $campaign){
+            if (now()->gt($campaign->run_till)){
+                array_push($timed_out_campaign_ids,$campaign->_id);
+            }
+        }
+
+        if(false == empty($timed_out_campaign_ids)) {
+            EmailCampaign::updateTimedOutCampaigns($timed_out_campaign_ids);
+        }
+
+
+        //fetching subscribers
+        $subscribers = NewsletterEmail::getVerifiedAndActiveSubscribers();
+        if(false == empty($subscribers)) {
+            $emails = [];
+            foreach ($subscribers as $subscriber) {
+                if (true == $subscriber->email_id) {
+                    array_push($emails, $subscriber->email_id);
+                } else {
+                    array_push($emails, User::findById($subscriber->user_id)->email);
+                }
+            }
+
+            //fetching the actual active campaigns
+            $campaigns = EmailCampaign::getActiveCampaigns();
+            $posts = [];
+            $campaignIds = [];
+            foreach ($campaigns as $campaign) {
+                //may be post ids be null
+                if (true == $campaign->post_ids) {
+                    if ($campaign->type == EmailCampaign::POSTS) {
+                        $blogPosts = BlogPost::getBlogsByIds($campaign->post_ids);
+                        foreach ($blogPosts as $blog_post) {
+                            $posts[] = [
+                                'title' => $blog_post->title,
+                                'slug' => $blog_post->slug,
+                                'excerpt' => $blog_post->excerpt,
+                                'featured_image' => $blog_post->featured_image,
+                                'campaign_source' => $campaign->campaign_source,
+                                'campaign_name' => $campaign->campaign_name,
+                                'campaign_medium' => $campaign->campaign_medium,
+                                'campaign_term' => $campaign->campaign_term,
+                                'campaign_content' => $campaign->campaign_content,
+                            ];
+                        }
+                        foreach ($emails as $email) {
+                            Mail::to($email)->queue(new EmailNewsletterForBlogPosts($campaign->short_desc, $posts));
+                        }
+                    }
+
+                    if ($campaign->type == EmailCampaign::CUSTOM) {
+                        //todo currently our focus is on blog posts only.
+                    }
+
+                    $campaignIds[] = array(
+                        'campaign_id' => $campaign->_id,
+                        'next_count' => (int)$campaign->run_times + 1
+                    );
+                }
+            }
+            EmailCampaign::updateCampaignRunTimes($campaignIds);
+        }
+    }
+}
+

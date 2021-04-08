@@ -1,0 +1,29 @@
+<?php
+
+namespace App\Models;
+
+use App\Models\Model;
+
+class ForumTag extends Model
+{
+    protected $fillable = ['name'];
+
+    /*Create Queries Start*/
+    public static function createTag($data)
+    {
+        $tag = new self;
+
+        $tag->title = $data['name'];
+
+        return $tag->save();
+    }
+    /*Create Queries End*/
+
+    /*Get Queries Start*/
+    public static function getTags()
+    {
+        return self::active()->get();
+    }
+    /*Get Queries End*/
+}
+

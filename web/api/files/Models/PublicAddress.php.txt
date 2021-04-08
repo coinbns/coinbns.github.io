@@ -1,0 +1,142 @@
+<?php
+
+namespace App\Models;
+
+use App\Models\Model;
+
+class PublicAddress extends Model
+{
+    //is_used
+    const UN_USED = 0;
+    const USED = 1;
+
+    /*Create Queries Start*/
+    public static function createBatch($data)
+    {
+        return self::insert($data);
+    }
+    /*Create Queries End*/
+
+    /*Find Queries Start*/
+    public static function findByUserId($offset, $coinId, $userId)
+    {
+        return self::where('is_used', self::UN_USED)
+            ->active()
+            ->where('coin_id', $coinId)
+            ->where('user_id', $userId)
+            ->offset($offset)
+            ->first();
+    }
+
+    public static function findDeAllocatedAddress($coinId)
+    {
+        return self::where('is_used', self::UN_USED)
+            ->active()
+            ->where('coin_id', $coinId)
+            ->where('user_id', null)
+            ->first();
+    }
+
+    public static function findUnUsedAddressByUserIdAndCoinId($userId, $coinId)
+    {
+        return self::where('is_used', self::UN_USED)
+            ->where('user_id', $userId)
+            ->where('coin_id', $coinId)
+            ->first();
+    }
+
+    public static function findAddress($coinId, $address)
+    {
+        return self::where('is_used', self::UN_USED)
+            ->active()
+            ->where('coin_id', $coinId)
+            ->where('address', $address)
+            ->whereNotNull('user_id')
+            ->first();
+    }
+
+    public static function findMaxIndexByAccountByCoin($accountNo, $coinId)
+    {
+        return self::where('coin_id', $coinId)
+            ->where('account_no', $accountNo)
+            ->orderBy('index_no', 'desc')
+            ->first();
+    }
+
+    public static function findByUserIdAndCoinId($userId, $coinId)
+    {
+        return self::join('users', 'users.id', '=', 'public_addresses.user_id')
+            ->join('coins', 'coins.id', '=', 'public_addresses.coin_id')
+            ->select(
+                'users.id As user_id',
+                'users.username As username',
+                'public_addresses.coin_id As coin_id',
+                'coins.symbol',
+                'public_addresses.address As user_address',
+                'public_addresses.id As user_address_id',
+                'public_addresses.account_no As account_no'
+            )
+            ->where('public_addresses.user_id', $userId)
+            ->where('public_addresses.coin_id', $coinId)
+            ->where('is_used', self::UN_USED)->first();
+    }
+    /*Find Queries End*/
+
+    /*Get Queries Start*/
+    public static function getAddressCountByCoin()
+    {
+        return self::selectRaw('count(id) as total_count, coin_id')
+            ->groupBy('coin_id')
+            ->get();
+    }
+
+    public static function getAllocatedAddressCountByCoin()
+    {
+        return self::selectRaw('count(id) as allocated_count , coin_id')
+            ->whereNotNull('user_id')
+            ->groupBy('coin_id')
+            ->get();
+    }
+
+    public static function getMaxIndexByAccountByCoin()
+    {
+        return self::selectRaw('max(index_no) as max_index , account_no, coin_id')
+            ->groupBy('coin_id', 'account_no')
+            ->get();
+    }
+
+    public static function getByUsernameOrUserIdAndCoinId($userCredentials, $coinId)
+    {
+        /*
+         * using get because here we are searching via username too using like %username%
+         */
+        return self::join('users', 'users.id', '=', 'public_addresses.user_id')
+            ->join('coins', 'coins.id', '=', 'public_addresses.coin_id')
+            ->select(
+                'users.id As user_id',
+                'users.username As username',
+                'public_addresses.coin_id As coin_id',
+                'coins.symbol',
+                'public_addresses.address As user_address',
+                'public_addresses.id As user_address_id',
+                'public_addresses.account_no As account_no'
+            )
+            ->where(function ($query) use ($userCredentials) {
+                $query->where('users.username', 'like', '%' . $userCredentials . '%')
+                    ->orWhere('public_addresses.user_id', $userCredentials);
+            })
+            ->where('public_addresses.coin_id', $coinId)
+            ->where('is_used', self::UN_USED)->get();
+    }
+
+    public static function getUsedAddressesByUser($coinId, $userId)
+    {   
+        return self::where('coin_id', $coinId)
+            ->where('user_id', $userId)
+            ->where('is_used', self::USED)
+            ->active()
+            ->get();
+    }
+    /*Get Queries End*/
+}
+

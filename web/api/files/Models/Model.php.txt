@@ -1,0 +1,23 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model as Eloquont;
+
+class Model extends Eloquont
+{
+    const ACTIVE = 1;
+    const INACTIVE = 2;
+    const DELETED = 0;
+
+    public function scopeActive($query)
+    {
+        return $query->where('status', self::ACTIVE);
+    }
+
+    public function scopeInActive($query)
+    {
+        return $query->where('status', self::INACTIVE);
+    }
+}
+

@@ -1,0 +1,35 @@
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use Illuminate\Http\Request;
+use App\Http\Controllers\Controller;
+use Storage;
+use Validator;
+
+class TncController extends Controller
+{
+    public function readFromFile()
+    {
+
+        if (Storage::exists('tnc.txt')) {
+            $contents = Storage::get('tnc.txt');
+        } else {
+            Storage::put('tnc.txt', '<h1>Terms and Conditions</h1>');
+            $contents = Storage::get('tnc.txt');
+        }
+        return view('admin.tnc.update')->with('contents', $contents);
+    }
+
+    public function update(Request $request)
+    {
+        $validator = request()->validate([
+            'tnc' => 'required'
+        ]);
+
+        Storage::put('tnc.txt', $request->tnc);
+
+        return redirect()->route('admin.tnc');
+    }
+}
+

@@ -1,0 +1,150 @@
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use App\Events\DisputeChatMessage;
+use App\Events\SendNotification;
+use Auth;
+use Validator;
+use Illuminate\Http\Request;
+use DB;
+use App\Models;
+use App\Models\Admin;
+use App\Models\ForumCategory;
+use App\Models\ForumPost;
+use App\Models\ForumTag;
+use Illuminate\Foundation\Auth\AuthenticatesUsers;
+use App\Http\Controllers\Controller;
+
+use Illuminate\Support\Facades\Storage;
+
+class ForumController extends Controller
+{
+    public function viewCategories()
+    {
+        return view('admin.forum.categories')->with('categories', ForumCategory::get());
+    }
+
+    public function saveCategory(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'title' => 'required',
+            'url' => 'required',
+        ]);
+        if ($validator->fails()) {
+            return redirect()
+                ->route('cs.forum.categories')
+                ->withErrors($validator)
+                ->withInput();
+        }
+
+        if (false == ForumCategory::create(array(
+                'title' => $request->title,
+                'url' => $request->url
+            ))) {
+            return redirect()
+                ->route('cs.forum.categories');
+        }
+        return redirect()->route('cs.forum.categories');
+    }
+
+    public function updateCategoryStatus(Request $request)
+    {
+        $categoryId = $request->category_id;
+        $status = $request->status;
+        $data = array(
+            'status' => $status
+        );
+        if (ForumCategory::updateCategory($categoryId, $data)) {
+            return response()->json(array('success' => true));
+        } else {
+            return response()->json(array('success' => false));
+        }
+    }
+
+    public function viewTags()
+    {
+        return view('admin.forum.tags')->with([
+            'tags' => ForumTag::getTags()
+        ]);
+    }
+
+    public function saveTag(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'tag' => 'required',
+        ]);
+
+        if (false == ForumTag::create(array(
+                'name' => $request->tag
+            ))) {
+            return redirect()
+                ->route('cs.forum.tags');
+        }
+        return redirect()->route('cs.forum.tags');
+    }
+
+    public function viewPosts()
+    {
+        //dd((int)round(ceil(ForumPost::count()/10)));
+        $pages = (int)round(ceil(ForumPost::count() / 10));
+
+        return view('admin.forum.posts')->with([
+            'posts' => ForumPost::getPostsSlim(),
+            'categories' => ForumCategory::get(),
+            'pages' => $pages
+        ]);
+    }
+
+    public function savePost(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'title' => 'required',
+            'category' => 'required',
+            'description' => 'required',
+        ]);
+        if ($validator->fails()) {
+            return redirect()
+                ->route('cs.forum.posts')
+                ->withErrors($validator)
+                ->withInput();
+        }
+
+        if (false == ForumPost::create(array(
+                'title' => $request->title,
+                'category' => $request->category,
+                'description' => $request->description
+            ))) {
+            return redirect()
+                ->route('cs.forum.posts');
+        }
+        return redirect()->route('cs.forum.posts');
+    }
+
+    public function viewPost($postId)
+    {
+        $post = ForumPost::findPost($postId);
+        if ( ! empty($post)) {
+            return view('admin.forum.post')->with([
+                'post' => $post
+            ]);
+        } else {
+            abort(404);
+        }
+    }
+
+    public function updateStatus(Request $request)
+    {
+        $postId = $request->post_id;
+        $status = $request->status;
+        $data = array(
+            'status' => $status
+        );
+        if (ForumPost::updatePost($postId, $data)) {
+            return response()->json(array('success' => true));
+        } else {
+            return response()->json(array('success' => false));
+        }
+    }
+}
+

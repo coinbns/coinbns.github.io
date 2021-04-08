@@ -1,0 +1,252 @@
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use Illuminate\Http\Request;
+use App\Http\Controllers\Controller;
+use App\Events\ErrorBroadcasting;
+use App\Models\Dispute;
+use Validator;
+use Storage;
+use Illuminate\Support\Facades\Crypt;
+use App\Events\DisputeGuiltyFound;
+use Redis;
+//use MongoClient;
+use Exception;
+use DB;
+use Jenssegers\Mongodb\Eloquent\Model;
+
+
+class TestingController extends Controller
+{
+    /**
+     * Used to test multiple connections in admin panel dashboard.
+     *
+     * No Authorization required to hit this endpoint as it is just pinging the servers
+     *
+     * - MySql
+     *
+     * - MongoDb
+     *
+     * - Redis Server
+     *
+     * - Laravel Echo Server
+     *
+     * default type is all.
+     *
+     * @param string $type
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function testConnections($type = 'all')
+    {
+        $arrRedis = [];
+        $arrMysql = [];
+        $arrMongo = [];
+        $arrEcho = [];
+        $arrSubscriber = [];
+
+        if ($type == 'all' || $type == 'redis') {
+            $redis = Redis::connection();
+            try {
+                $redis->ping();
+            } catch (Exception $redisException) {
+                //
+            }
+            if (isset($redisException)) {
+                $arrRedis = array(
+                    'status' => false,
+                    'message' => 'Redis connection failed'
+                );
+            } else {
+                $arrRedis = array(
+                    'status' => true,
+                    'message' => 'Redis connection OK'
+                );
+            }
+            if ($type == 'redis') {
+                return response()->json(array(
+                    'success' => true,
+                    'data' => [
+                        'redis' => $arrRedis,
+                    ]
+                ));
+            }
+        }
+
+        if ($type == 'all' || $type == 'mysql') {
+            if (true == DB::connection()) {
+                $arrMysql = array(
+                    'status' => true,
+                    'message' => 'MySql connection OK'
+                );
+            } else {
+                $arrMysql = array(
+                    'status' => false,
+                    'message' => 'MySql connection failed'
+                );
+            }
+
+            if ($type == 'mysql') {
+                return response()->json(array(
+                    'success' => true,
+                    'data' => [
+                        'mysql' => $arrMysql,
+                    ]
+                ));
+            }
+        }
+
+        if ($type == 'all' || $type == 'subscriber') {
+            $http = new \GuzzleHttp\Client;
+            try {
+                $subResponse = $http->get(config('app.subscriber_endpoint') . "/log/meta");
+
+            } catch (\Exception $subscriberException) {
+                //
+            }
+
+            if (isset($subscriberException)) {
+                $arrSubscriber = array(
+                    'status' => false,
+                    'message' => 'Subscriber connection failed'
+                );
+            } else {
+                $arrSubscriber = array(
+                    'status' => true,
+                    'message' => 'Subscriber connection OK'
+                );
+            }
+
+
+            if ($type == 'subscriber') {
+                return response()->json(array(
+                    'success' => true,
+                    'data' => [
+                        'subscriber' => $arrSubscriber,
+                    ]
+                ));
+            }
+        }
+
+        if ($type == 'all' || $type == 'echo-server') {
+            $json = json_decode(file_get_contents(base_path('laravel-echo-server.json')));
+            $appId = $json->clients[0]->appId;
+            $key = $json->clients[0]->key;
+            $port = $json->port;
+            $url = explode(":", config('app.url'));
+
+            $url = $url[0] . ':' . $url[1];
+
+            try {
+                $echoJson = file_get_contents($url . ':' . $port . '/apps/' . $appId . '/channels?auth_key=' . $key);
+            } catch (Exception $echoException) {
+                //
+            }
+
+            if (isset($echoException)) {
+                $arrEcho = array(
+                    'status' => false,
+                    'message' => 'Echo Server connection failed'
+                );
+            } else {
+                $arrEcho = array(
+                    'status' => true,
+                    'message' => 'Echo Server connection OK'
+                );
+            }
+
+            if ($type == 'echo-server') {
+                return response()->json(array(
+                    'success' => true,
+                    'data' => [
+                        'echo' => $arrEcho,
+                    ]
+                ));
+            }
+
+        }
+
+        if ($type == 'all' || $type == 'mongo') {
+            $connection = DB::connection('mongodb');
+            try {
+                $dbs = $connection->getMongoClient()->listDatabases();
+
+            } catch (\MongoDB\Driver\Exception\ConnectionTimeoutException $mongoException) {
+                //
+            }
+            if (isset($mongoException)) {
+                $arrMongo = array(
+                    'status' => false,
+                    'message' => 'Mongo connection failed'
+                );
+            } else {
+                $arrMongo = array(
+                    'status' => true,
+                    'message' => 'Mongo connection OK'
+                );
+            }
+
+            if ($type == 'mongo') {
+                return response()->json(array(
+                    'success' => true,
+                    'data' => [
+                        'mongo' => $arrMongo,
+                    ]
+                ));
+            }
+        }
+
+        if ($type == 'all') {
+            return response()->json(array(
+                'success' => true,
+                'data' => [
+                    'redis' => $arrRedis,
+                    'mysql' => $arrMysql,
+                    'mongo' => $arrMongo,
+                    'echo' => $arrEcho,
+                    'subscriber' =>$arrSubscriber
+                ]
+            ));
+        }
+    }
+
+    ###### Old methods ########
+    public function dateArraySort()
+    {
+        $arr = array('11-01-2012.', '01-01-2014', '01-01-2015', '09-02-2013', '01-01-2013');
+        usort($arr, array($this, 'date_sort'));
+        dd($arr);
+    }
+
+    public static function date_sort($a, $b)
+    {
+        return strtotime($a) - strtotime($b);
+    }
+
+    public function mockGuilty($disputeId, $userId, $yesNo)
+    {
+        if (strtoupper(strtoupper($yesNo) == 'Y')) {
+            $guilty = 1;
+            $message = 'Your are guilty for the trade, bahut shaana banta hai haan...!';
+        } else {
+            $guilty = 0;
+            $message = 'You are as innocent as Dinesh...jaa jeele apni zindgi..!!!';
+        }
+
+        broadcast(new DisputeGuiltyFound($disputeId, $userId, $message, $guilty))->toOthers();
+    }
+
+    public function mockLogGenerator()
+    {
+        /*$error = array(
+            'type' => config('logging.error_type.LARAVEL'),
+            'message' => 'Button Clicked..',
+            'date' => date('Y-m-d')
+        );
+        $objError = json_encode($error);
+        broadcast(new ErrorBroadcasting($objError));*/
+
+        return 1 / 0;
+    }
+}
+

@@ -1,0 +1,52 @@
+<?php
+
+namespace App\Models;
+
+use App\Models\Model;
+
+class UserSecurityProfile extends Model
+{
+    //verification_methods
+    const METHOD_MOBILE_OTP = 1;
+    const METHOD_GOOGLE_AUTHENTICATOR = 2;
+
+    /*Create Queries Start*/
+    public static function createUserSecurityProfile($data)
+    {
+        $userSecurityProfile = new self;
+
+        $userSecurityProfile->user_id = $data['user_id'];
+        $userSecurityProfile->is_contact_verified = $data['is_contact_verified'];
+        $userSecurityProfile->is_mnemonic_generated = $data['is_mnemonic_generated'];
+        $userSecurityProfile->verification_methods = $data['verification_methods'];
+        $userSecurityProfile->google_authenticator_secret = $data['google_authenticator_secret'];
+        $userSecurityProfile->is_start_verification_complete = $data['is_start_verification_complete'];
+        $userSecurityProfile->status = $data['status'];
+        $userSecurityProfile->save();
+
+        return $userSecurityProfile->id;
+    }
+    /*Create Queries End*/
+
+    /*Get Queries Start*/
+    public static function getTags()
+    {
+        return self::active()->get();
+    }
+    /*Get Queries End*/
+
+    /*Update Queries Start*/
+    public static function updateMnemonicGenerated($userId, $status)
+    {
+        return self::where('user_id', $userId)->update(['is_mnemonic_generated' => $status]);
+    }
+    /*Update Queries End*/
+
+    /*Non Static Functions Start*/
+    public function getVerificationMethodsAttribute($numbers)
+    {
+        return json_decode($numbers);
+    }
+    /*Non Static Functions End*/
+}
+

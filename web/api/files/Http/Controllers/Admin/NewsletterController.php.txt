@@ -1,0 +1,99 @@
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use Illuminate\Http\Request;
+use App\Http\Controllers\Controller;
+use Auth;
+use PharIo\Manifest\Email;
+use Validator;
+use App\Models\BlogPost;
+use App\Models\EmailCampaign;
+use App\Models\NewsletterEmail;
+use Illuminate\Validation\Rule;
+use DateTime;
+
+class NewsletterController extends Controller
+{
+    public function viewCampaigns()
+    {
+        $campaigns = EmailCampaign::getCampaigns();
+//        $campaigns->setVisible([
+//            '_id',
+//            'campaign_name',
+//            'status',
+//            'type',
+//            'run_till',
+//            'run_times'
+//        ]);
+        return view('admin.email_campaigns.list')->with('campaigns', $campaigns);
+    }
+
+    public function viewUpsertCampaign($campaignId = null)
+    {
+        $campaign = [];
+        if (true == $campaignId) {
+            //fetch campaign data
+            $campaign = EmailCampaign::findById($campaignId);
+        }
+        $posts = $this->insertAuthorUsernameInCollection(BlogPost::getActiveBlogs());
+        return view('admin.email_campaigns.upsert_campaign')->with([
+            'posts' => $posts,
+            'campaign' => $campaign,
+            'campaignId' => $campaignId
+        ]);
+    }
+
+    public function upsertCampaign($campaignId = null, Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'campaign_name' => 'required',
+            'campaign_source' => 'required',
+            'campaign_medium' => 'required',
+            'campaign_term' => 'required',
+            'campaign_content' => 'required',
+            'run_till' => 'required',
+            'type' => [
+                'required',
+                Rule::in([EmailCampaign::POSTS, EmailCampaign::CUSTOM]),
+            ],
+        ]);
+        if ($validator->fails()) {
+            return response()->json(array('success' => false, 'errors' => $validator->errors()->all()));
+        }
+
+        if(true == $campaignId) {
+
+            $campaign = EmailCampaign::updateCampaign($campaignId, array(
+                'campaign_name' => $request->campaign_name,
+                'campaign_source' => $request->campaign_source,
+                'campaign_medium' => $request->campaign_medium,
+                'campaign_term' => $request->campaign_term,
+                'campaign_content' => $request->campaign_content,
+                'short_desc' => $request->short_desc,
+                'run_till' => $request->run_till,
+                'type' => $request->type,
+                'post_ids' =>$request->selected_post_ids
+            ));
+
+            return response()->json(array('success' => true, 'message' => 'Newsletter updated successfully'));
+
+        } else {
+            $campaign = EmailCampaign::createCampaign(array(
+                'campaign_name' => $request->campaign_name,
+                'campaign_source' => $request->campaign_source,
+                'campaign_medium' => $request->campaign_medium,
+                'campaign_term' => $request->campaign_term,
+                'campaign_content' => $request->campaign_content,
+                'short_desc' => $request->short_desc,
+                'run_till' => $request->run_till,
+                'type' => $request->type,
+                'post_ids' =>$request->selected_post_ids
+            ));
+
+            return response()->json(array('success' => true, 'message' => 'Newsletter created successfully'));
+        }
+
+    }
+}
+

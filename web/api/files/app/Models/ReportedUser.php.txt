@@ -1,0 +1,86 @@
+<?php
+
+namespace App\Models;
+
+use App\Models\Model;
+use Illuminate\Support\Facades\DB;
+
+class ReportedUser extends Model
+{
+    public $timestamps=false;
+
+    //statuses
+
+    const ACTIVE = 1;
+    const INACTIVE = 2;
+
+    /*Create Queries Start*/
+    public static function createUserReport($data)
+    {
+        $report=new self;
+
+        $report->user_id=$data['user_id'];
+        $report->by_user_id=$data['by_user_id'];
+        $report->message=$data['message'];
+        $report->save();
+
+        return $report->id;
+    }
+    /*Create Queries End*/
+
+    /*Find Queries Start*/
+    public static function findReportedUser($userId, $byUserId)
+    {
+        return self::where([
+            'user_id'=>$userId,
+            'by_user_id'=>$byUserId,
+            'status'=>self::ACTIVE
+        ])->first();
+    }
+
+    public static function findDetailByUserId($userId)
+    {
+        return self::join(
+            'users As u', 'reported_users.user_id', '=', 'u.id'
+        )->select(
+            'u.username',
+            'u.id',
+            'u.suspended_till',
+            'reported_users.message',
+            'reported_users.created_at As report_date'
+        )->where('user_id', $userId)->first();
+    }
+    /*Find Queries End*/
+
+
+    /*Get Queries Start*/
+    public static function getReportedUsers()
+    {
+        return self::leftjoin('users As u', 'reported_users.user_id', '=', 'u.id')
+            ->select(
+                DB::raw('reported_users.user_id, u.username,count(*) as count,u.suspended_till')
+            )->groupBy('reported_users.user_id')->where('reported_users.status',self::ACTIVE)->get();
+    }
+
+    public static function getDetailByUserId($userId)
+    {
+        return self::join(
+            'users As u', 'reported_users.by_user_id', '=', 'u.id'
+        )->select(
+            'u.username',
+            'reported_users.message',
+            'reported_users.created_at As report_date'
+        )->where('user_id', $userId)->get();
+    }
+    /*Get Queries End*/
+
+    /*Update Queries Start*/
+    public static function inactivateReportedUserById($userId)
+    {
+        return self::where('user_id',$userId)->update([
+            'status'=>self::INACTIVE
+        ]);
+    }
+    /*Update Queries End*/
+}
+

@@ -1,0 +1,22 @@
+<?php
+
+namespace App;
+
+use Zizaco\Entrust\EntrustPermission;
+
+class Permission extends EntrustPermission
+{
+    protected $fillable = ['name', 'description', 'display_name'];
+
+    public static function getPermissionsByRoleId($id)
+    {
+        return self::join('permission_role As pr', 'pr.permission_id', '=', 'permissions.id')
+            ->select(
+                'permissions.id',
+                'permissions.name',
+                'pr.special_permission'
+            )
+            ->where('pr.role_id', $id)->get();
+    }
+}
+

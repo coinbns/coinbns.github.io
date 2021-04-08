@@ -1,0 +1,316 @@
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use Auth;
+use Validator;
+use Illuminate\Http\Request;
+use App\Http\Controllers\Controller;
+use Illuminate\Foundation\Auth\AuthenticatesUsers;
+use App\Models\EventLogger;
+use Hash;
+
+class AdminController extends Controller
+{
+    use AuthenticatesUsers;
+
+    public function checkAuth()
+    {
+        if(true == Auth::guard('admin')->user()){
+            return redirect()->route('cs.dashboard');
+        } else{
+            return redirect()->route('admin.login');
+        }
+    }
+
+    public function login(Request $request)
+    {
+        return view('admin.auth.login');
+    }
+
+    public function validateLogin(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'email' => 'required',
+            'password' => 'required',
+        ]);
+        if ($validator->fails()) {
+            return redirect()
+                ->route('admin.login')
+                ->withErrors($validator)
+                ->withInput();
+        }
+
+        if (false == Auth::guard('admin')->attempt([
+                'email' => $request->email,
+                'password' => $request->password,
+                'status' => 1
+            ])) {
+            // Authentication failed...
+            return redirect()
+                ->route('admin.login')
+                ->withErrors([
+                    'Username or Password Incorrect'
+                ]);
+        }
+
+        $login_check = \App\Models\Admin::findbyEmail($request->email);
+
+//        $roleId=Auth::guard('admin')->user()->roles()->get()[0]->id;
+
+        // dd(Auth::guard('admin')->user()->roles->first()->permissions);
+
+        $request->session()->put('user_id', $login_check->id);
+        //redirect to cs dashboard
+        return redirect()->route('cs.dashboard');
+
+    }
+
+    public function dashboard()
+    {
+        return view('admin.dashboard.dashboard');
+    }
+
+    public function viewDisputes()
+    {
+        dd('Admin Dispute');
+    }
+
+    public function coins()
+    {
+        echo "Hello World";
+    }
+
+    public function exchanges()
+    {
+        echo "Hello World";
+    }
+
+    protected function guard()
+    {
+        return auth()->guard('admin');
+    }
+
+    public function logout(Request $request)
+    {
+        $this->guard()->logout();
+
+        $request->session()->invalidate();
+        $request->session()->flush();
+
+        return redirect()->route('admin.login');
+    }
+
+
+    ////////////////////////////////////////////////////////////////////
+
+    public function viewCsDashboard()
+    {
+        $users = EventLogger::getUsersByTypeLogin()->toArray();
+        $latLng = [];
+        foreach ($users as $user) {
+            $latLng[] = array(
+                'lat' => $user->_id->lat,
+                'lng' => $user->_id->long,
+                'count' => $user->count
+            );
+        }
+
+
+        ############### Users By Browsers ################
+        $browsersByCountry = EventLogger::getBrowsersByCountries(EventLogger::LOGIN)->toArray();
+        $browserCountry = [];
+
+        foreach ($browsersByCountry as $value) {
+            $browserCountry[] = [
+                'name' => $value->_id->browser,
+                'country' => $value->_id->country,
+                'state' => $value->_id->state,
+                'count' => $value->count
+            ];
+        }
+
+
+        $byBrowserByCountry = collect($browserCountry)->groupBy('name')->transform(function ($item, $k) {
+            return $item->groupBy('country');
+        });
+
+        $catSeries = [];
+        $drillSeries = [];
+
+        foreach ($byBrowserByCountry as $cKey => $cValue) {
+            $countryArr = [];
+
+            foreach ($cValue->toArray() as $ck => $cv) {
+                $countryName = $ck;
+                $ccount = 0;
+                foreach ($cv as $cvv) {
+                    $ccount += $cvv['count'];
+                }
+
+                $countryArr[] = [
+                    'name' => $countryName,
+                    'y' => $ccount,
+                    'drilldown' => $countryName . '-' . $cKey
+                ];
+            }
+
+            $catSeries[] = [
+                'name' => $cKey,
+                'data' => $countryArr
+            ];
+
+        }
+
+        $byCountryByBrowser = collect($browserCountry)->groupBy('country')->transform(function ($item, $k) {
+            return $item->groupBy('name');
+        });
+
+        foreach ($byCountryByBrowser as $cbKey => $cbValue) {
+            $countryName = $cbKey;
+
+            foreach ($cbValue->toArray() as $cbk => $cbv) {
+                $browsername = $cbk;
+                $stateData = [];
+                foreach ($cbv as $sk => $sv) {
+                    $stateData[] = [
+                        'state' => $sv['state'],
+                        'count' => $sv['count']
+                    ];
+                }
+                $stateGroup = collect($stateData)->groupBy('state');
+
+                $count = 0;
+                $data = [];
+                foreach ($stateGroup as $kk => $vv) {
+                    foreach ($vv as $v3) {
+                        $count += $v3['count'];
+                    }
+                    $data[] = [
+                        $kk,
+                        $count
+                    ];
+                }
+
+                $drillSeries[] = [
+                    'name' => $browsername,
+                    'id' => $countryName . '-' . $browsername,
+                    'data' => $data
+                ];
+            }
+
+        }
+
+        ############### Users By Platform ################
+        $platformsByCountry = EventLogger::getPlatformsByCountries(EventLogger::LOGIN)->toArray();
+        $platformCountry = [];
+
+        foreach ($platformsByCountry as $value) {
+            $platformCountry[] = [
+                'name' => $value->_id->platform,
+                'country' => $value->_id->country,
+                'state' => $value->_id->state,
+                'count' => $value->count
+            ];
+        }
+
+
+        $byPlatformByCountry = collect($platformCountry)->groupBy('name')->transform(function ($item, $k) {
+            return $item->groupBy('country');
+        });
+
+        $platformCatSeries = [];
+        $platformDrillSeries = [];
+
+        foreach ($byPlatformByCountry as $cKey => $cValue) {
+            $countryArr = [];
+
+            foreach ($cValue->toArray() as $ck => $cv) {
+                $countryName = $ck;
+                $ccount = 0;
+                foreach ($cv as $cvv) {
+                    $ccount += $cvv['count'];
+                }
+
+                $countryArr[] = [
+                    'name' => $countryName,
+                    'y' => $ccount,
+                    'drilldown' => $countryName . '-' . $cKey
+                ];
+            }
+
+            $platformCatSeries[] = [
+                'name' => $cKey,
+                'data' => $countryArr
+            ];
+
+        }
+
+        $byCountryByPlatform = collect($platformCountry)->groupBy('country')->transform(function ($item, $k) {
+            return $item->groupBy('name');
+        });
+
+        foreach ($byCountryByPlatform as $cbKey => $cbValue) {
+            $countryName = $cbKey;
+
+            foreach ($cbValue->toArray() as $cbk => $cbv) {
+                $platformname = $cbk;
+                $stateData = [];
+                foreach ($cbv as $sk => $sv) {
+                    $stateData[] = [
+                        'state' => $sv['state'],
+                        'count' => $sv['count']
+                    ];
+                }
+
+                $stateGroup = collect($stateData)->groupBy('state');
+
+                $count = 0;
+                $data = [];
+                foreach ($stateGroup as $kk => $vv) {
+                    foreach ($vv as $v3) {
+                        $count += $v3['count'];
+                    }
+                    $data[] = [
+                        $kk,
+                        $count
+                    ];
+                }
+
+                $platformDrillSeries[] = [
+                    'name' => $platformname,
+                    'id' => $countryName . '-' . $platformname,
+                    'data' => $data
+                ];
+            }
+
+        }
+
+
+        return view('admin.dashboard.dashboard', [
+            'latLng' => $latLng,
+            'users_by_browsers_series' => json_encode($catSeries),
+            'users_by_browsers_drill_series' => json_encode($drillSeries),
+            'users_by_platforms_series' => json_encode($platformCatSeries),
+            'users_by_platforms_drill_series' => json_encode($platformDrillSeries),
+        ]);
+    }
+
+    public function viewConvertHashToId(){
+        return view('admin.convert.view_hash_to_id');
+    }
+
+    public function convertHashToId(Request $request)
+    {
+        $validator = Validator::make($request->all(),[
+            'hash' => 'required'
+        ]);
+        if ($validator->fails()) {
+            return response()->json(array('success' => false, 'errors' => $validator->errors()->all()));
+        }
+
+        $id = $this->decodeHash($request->hash);
+        return response()->json(array('success' => true, 'id' => $id));
+    }
+}
+

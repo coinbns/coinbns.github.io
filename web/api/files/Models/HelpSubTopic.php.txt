@@ -1,0 +1,58 @@
+<?php
+
+namespace App\Models;
+
+use \App\Models;
+use Auth;
+
+class HelpSubTopic extends Model
+{
+    protected $fillable = ['help_topic_id', 'title', 'data'];
+
+    /*Find Queries Start*/
+    public static function findById($subTopicId)
+    {
+        return self::join('help_topics', 'help_topics.id', '=', 'help_sub_topics.help_topic_id')
+            ->select(
+                'help_topics.topic As main_topic',
+                'help_topics.id As main_topic_id',
+                'help_sub_topics.id As sub_topic_id',
+                'help_sub_topics.title As sub_topic',
+                'help_sub_topics.data As sub_topic_data',
+                'help_sub_topics.status As sub_status',
+                'help_sub_topics.updated_at As sub_updated_at'
+            )->where([
+                'help_topics.status' => HelpTopic::ACTIVE,
+                'help_sub_topics.id' => $subTopicId
+            ])->first();
+    }
+    /*Find Queries End*/
+
+    /*Get Queries Start*/
+    public static function getSubTopics()
+    {
+        return self::join('help_topics', 'help_topics.id', '=', 'help_sub_topics.help_topic_id')
+            ->select(
+                'help_topics.topic As main_topic',
+                'help_topics.id As main_topic_id',
+                'help_sub_topics.id As sub_topic_id',
+                'help_sub_topics.title As sub_topic',
+                'help_sub_topics.status As sub_status',
+                'help_sub_topics.updated_at As sub_updated_at'
+            )->where('help_topics.status', HelpTopic::ACTIVE)->get();
+    }
+
+    public static function getSubTopicsByMainTopicId($mainTopicId)
+    {
+        return self::where('help_topic_id', $mainTopicId)->active()->get();
+    }
+    /*Get Queries End*/
+
+    /*Update Queries Start*/
+    public static function updateTopic($topicId, $data)
+    {
+        return self::where('id', $topicId)->update($data);
+    }
+    /*Update Queries End*/
+}
+

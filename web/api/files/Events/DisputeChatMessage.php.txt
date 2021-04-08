@@ -1,0 +1,55 @@
+<?php
+
+namespace App\Events;
+
+use Illuminate\Broadcasting\Channel;
+use Illuminate\Queue\SerializesModels;
+use Illuminate\Broadcasting\PrivateChannel;
+use Illuminate\Broadcasting\PresenceChannel;
+use Illuminate\Foundation\Events\Dispatchable;
+use Illuminate\Broadcasting\InteractsWithSockets;
+use Illuminate\Contracts\Broadcasting\ShouldBroadcast;
+
+/**
+ * This event is fired when user send chat message during a trade dispute.
+ *
+ * Event is broadcasted on private channel `users`
+ *
+ * Class DisputeChatMessage
+ * @package App\Events
+ */
+class DisputeChatMessage implements ShouldBroadcast
+{
+    use InteractsWithSockets, SerializesModels;
+
+    public $messageContent;
+    public $disputeId;
+    public $userId;
+    public $type;
+
+    /**
+     * DisputeChatMessage constructor.
+     * @param int $disputeId
+     * @param string $messageContent
+     * @param int $userId
+     * @param int $type see constants `TYPE_TEXT`, `TYPE_DOC`, `TYPE_IMAGE` in DisputeChatMessage Model
+     */
+    public function __construct($disputeId, $messageContent, $userId, $type)
+    {
+        $this->disputeId = encodeHash($disputeId);
+        $this->userId = encodeHash($userId);
+        $this->messageContent = $messageContent;
+        $this->type = $type;
+    }
+
+    /**
+     * Broadcast on the private channel `users`.
+     * @return Channel|Channel[]|PrivateChannel
+     */
+    public function broadcastOn()
+    {
+        // return new PresenceChannel('chat-dispute.'.$this->disputeId.'-'.$this->userId);
+        return new PrivateChannel('users.'. $this->userId);
+    }
+}
+

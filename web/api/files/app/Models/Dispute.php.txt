@@ -1,0 +1,420 @@
+<?php
+
+namespace App\Models;
+
+use \App\Models;
+use Auth;
+
+class Dispute extends Model
+{
+    protected $fillable = ['dispute_reason_id'];
+
+    //status
+    const DELETED = 0;
+    const ACTIVE = 1;
+    const INACTIVE = 2;
+
+    //dispute status
+    const ACTIVE_DISPUTE = 1;
+    const INACTIVE_DISPUTE = 0;
+
+    //user_type
+    const SELLER = 1;
+    const BUYER = 2;
+
+    //buyer Notifications
+    const BUYER_NOTIFIED = 1;
+    const BUYER_NOT_NOTIFIED = 0;
+
+    //seller Notifications
+    const SELLER_NOTIFIED = 1;
+    const SELLER_NOT_NOTIFIED = 0;
+
+
+    /*Create Queries Start*/
+    public static function createDispute($data)
+    {
+        $dispute = new self;
+
+        $dispute->dispute_reason_id = $data['dispute_reason_id'];
+        $dispute->trade_id = $data['trade_id'];
+        $dispute->user_id = $data['user_id'];
+        $dispute->user_type = $data['user_type'];
+        $dispute->admin_id = $data['admin_id'];
+        $dispute->dispute_status = $data['dispute_status'];
+        return $dispute->save();
+    }
+    /*Create Queries End*/
+
+    /*Find Queries Start*/
+    public static function checkCsAssignedToDisputeId($id)
+    {
+        return self::where(['id' => $id, 'admin_id' => Auth::guard('admin')->user()->id])->first();
+    }
+
+    public static function findOpenDisputeById($id)
+    {
+        return self::join('admins', 'admins.id', '=', 'disputes.admin_id')
+            ->select(
+                'admins.username As admin_username',
+                'disputes.*'
+            )
+            ->where(['disputes.id' => $id, 'dispute_status' => self::ACTIVE_DISPUTE])->first();
+    }
+
+    public static function findClosedDisputeId($id)
+    {
+        return self::where(['id' => $id, 'dispute_status' => self::INACTIVE_DISPUTE])->first();
+    }
+
+    public static function findDisputeFat($disputeId)
+    {
+        return self
+            ::join('trades', 'trades.id', '=', 'disputes.trade_id')
+            ->join('advertisements As ads', 'ads.id', '=', 'trades.advertisement_id')
+            ->join('users As seller', 'seller.id', '=', 'trades.seller_id')
+            ->join('users As buyer', 'buyer.id', '=', 'trades.buyer_id')
+            ->join('coins', 'coins.id', '=', 'ads.coin_id')
+            ->join('currencies', 'currencies.id', '=', 'ads.currency_id')
+            ->join('countries', 'countries.id', '=', 'ads.country_id')
+            ->join('dispute_reasons As reasons', 'reasons.id', '=', 'disputes.dispute_reason_id')
+            ->join('admins', 'admins.id', '=', 'disputes.admin_id')
+            ->select(
+                'disputes.id As dispute_id',
+                'disputes.created_at As created_at',
+                'disputes.dispute_status',
+                'disputes.dispute_close_reason',
+                'disputes.user_id As dispute_raised_by',
+                'disputes.guilty As guilty_user',
+                'disputes.guilty_user_id',
+                'disputes.guilt_description',
+
+                'seller.username As seller_username',
+                'seller.id As seller_id',
+                'buyer.username As buyer_username',
+                'buyer.id As buyer_id',
+
+                'trades.id As trade_id',
+                'trades.started_at As trade_start_date',
+                'trades.did_buyer_confirmed_payment',
+                'trades.did_seller_released_coins',
+                'trades.did_buyer_received_coins',
+                'trades.trade_status',
+                'trades.is_seller_trusted',
+                'trades.coin_value',
+                'trades.fiat_value',
+
+                'ads.id As ad_id',
+                'ads.trade_type',
+                'ads.payment_method',
+
+                'coins.symbol As coin_symbol',
+                'coins.id As coin_id',
+                'currencies.symbol As currency_symbol',
+                'currencies.id As currency_id',
+                'reasons.reason',
+                'admins.username As cs_username',
+                'admins.name As cs_name'
+            )
+            ->where(['disputes.id' => $disputeId, 'disputes.admin_id' => Auth::guard('admin')->user()->id])
+            ->first();
+    }
+
+    public static function findDisputeFatSuper($disputeId)
+    {
+        return self
+            ::join('trades', 'trades.id', '=', 'disputes.trade_id')
+            ->join('advertisements As ads', 'ads.id', '=', 'trades.advertisement_id')
+            ->join('users As seller', 'seller.id', '=', 'trades.seller_id')
+            ->join('users As buyer', 'buyer.id', '=', 'trades.buyer_id')
+            ->join('coins', 'coins.id', '=', 'ads.coin_id')
+            ->join('currencies', 'currencies.id', '=', 'ads.currency_id')
+            ->join('countries', 'countries.id', '=', 'ads.country_id')
+            ->join('dispute_reasons As reasons', 'reasons.id', '=', 'disputes.dispute_reason_id')
+            ->join('admins', 'admins.id', '=', 'disputes.admin_id')
+            ->select(
+                'disputes.id As dispute_id',
+                'disputes.created_at As created_at',
+                'disputes.dispute_status',
+                'disputes.dispute_close_reason',
+                'disputes.user_id As dispute_raised_by',
+                'disputes.guilty As guilty_user',
+                'disputes.guilty_user_id',
+                'disputes.guilt_description',
+
+                'seller.username As seller_username',
+                'seller.id As seller_id',
+                'buyer.username As buyer_username',
+                'buyer.id As buyer_id',
+
+                'trades.id As trade_id',
+                'trades.started_at As trade_start_date',
+                'trades.did_buyer_confirmed_payment',
+                'trades.did_seller_released_coins',
+                'trades.did_buyer_received_coins',
+                'trades.trade_status',
+                'trades.is_seller_trusted',
+                'trades.coin_value',
+                'trades.fiat_value',
+
+                'ads.id As ad_id',
+                'ads.trade_type',
+                'ads.payment_method',
+
+                'coins.symbol As coin_symbol',
+                'coins.id As coin_id',
+                'currencies.symbol As currency_symbol',
+                'currencies.id As currency_id',
+                'reasons.reason',
+                'admins.username As cs_username',
+                'admins.name As cs_name'
+            )
+            ->where(['disputes.id' => $disputeId])
+            ->first();
+    }
+
+    public static function findUsersByDisputeId($disputeId)
+    {
+        return self
+            ::join('trades', 'trades.id', '=', 'disputes.trade_id')
+            ->join('users As seller', 'seller.id', '=', 'trades.seller_id')
+            ->join('users As buyer', 'buyer.id', '=', 'trades.buyer_id')
+            ->select(
+                'seller.id As seller_id',
+                'buyer.id As buyer_id'
+            )
+            ->where(['disputes.dispute_status' => self::ACTIVE_DISPUTE])
+            ->first();
+    }
+
+    public static function findTradeIdByDisputeId($disputeId)
+    {
+        return self::select('disputes.trade_id')->where(['disputes.id' => $disputeId])->first();
+    }
+
+    public static function findTradeByDisputeId($disputeId)
+    {
+        return self::from('disputes As d')
+            ->join('trades As t', 't.id', '=', 'd.trade_id')
+            ->select('t.*')
+            ->where(['d.id' => $disputeId])
+            ->first();
+    }
+
+    public static function findDisputeByDisputeIdByUserId($disputeId, $userId)
+    {
+        $dispute = self::from('disputes As d')
+            ->join('trades As t', 't.id', '=', 'd.trade_id')
+            ->where([
+                'd.id' => $disputeId
+            ])
+            ->where(function ($query) use ($userId) {
+                $query->where('t.seller_id', $userId)
+                    ->orWhere('t.buyer_id', $userId);
+            })->first();
+
+        return $dispute;
+    }
+
+    /**
+     * Here if `adminId` is null then it will count all the open disputes i.e Super user will get all the counts
+     * otherwise, the corresponding admin will get count of open disputes which were assigned to him.
+     * @param int|null $adminId
+     * @return mixed
+     */
+    public static function findOpenDisputeCountForAdmin($adminId = null)
+    {
+        $count = self::where('dispute_status',self::ACTIVE);
+        if(true == $adminId){
+            $count = $count->where('admin_id',$adminId);
+        }
+        $count= $count->count();
+
+        return $count;
+    }
+    /*Find Queries End*/
+
+    /*Get Queries Start*/
+    public static function getOpenDisputes()
+    {
+        return self
+            ::join('trades', 'trades.id', '=', 'disputes.trade_id')
+            ->join('advertisements As ads', 'ads.id', '=', 'trades.advertisement_id')
+            ->join('users As seller', 'seller.id', '=', 'trades.seller_id')
+            ->join('users As buyer', 'buyer.id', '=', 'trades.buyer_id')
+            ->select(
+                'disputes.id As Dispute_id',
+                'seller.name As Seller_Name',
+                'seller.username As Seller_Username',
+                'buyer.name As Buyer_Name',
+                'buyer.username As Buyer_Username',
+                'trades.id As Trade_Id',
+                'trades.started_at As Trade_Start_Date',
+                'ads.id As Ad_Id'
+            )
+            ->where(['disputes.dispute_status' => self::ACTIVE_DISPUTE])
+            ->get();
+    }
+
+    public static function getOpenDisputesByCsId()
+    {
+        return self
+            ::join('trades', 'trades.id', '=', 'disputes.trade_id')
+            ->join('advertisements As ads', 'ads.id', '=', 'trades.advertisement_id')
+            ->join('users As seller', 'seller.id', '=', 'trades.seller_id')
+            ->join('users As buyer', 'buyer.id', '=', 'trades.buyer_id')
+            ->select(
+                'disputes.id As Dispute_id',
+                'seller.name As Seller_Name',
+                'seller.username As Seller_Username',
+                'buyer.name As Buyer_Name',
+                'buyer.username As Buyer_Username',
+                'trades.id As Trade_Id',
+                'trades.started_at As Trade_Start_Date',
+                'ads.id As Ad_Id'
+            )
+            ->where(['disputes.dispute_status' => self::ACTIVE_DISPUTE, 'admin_id' => Auth::guard('admin')->user()->id])
+            ->get();
+    }
+
+    public static function getDisputesByUserId($userId)
+    {
+        return self::active()
+            ->where('user_id', $userId)
+            ->get();
+    }
+
+    public static function getDisputesWhereUserIsguilty($userId)
+    {
+        return self::active()
+            ->where('guilty_user_id', $userId)
+            ->get();
+    }
+
+    public static function getDemographicData(
+        $offset = null,
+        $limit = null,
+        $month = null,
+        $year = null,
+        $userId,
+        $coinId
+    ) {
+        $query = self::from('disputes As d')
+            ->join('trades As t', 't.id', '=', 'd.trade_id')
+            ->join('users As seller', 'seller.id', '=', 't.seller_id')
+            ->join('users As buyer', 'buyer.id', '=', 't.buyer_id')
+            ->join('advertisements As ads', 'ads.id', '=', 't.advertisement_id')
+            ->select(
+                'd.id As dispute_id',
+                'd.trade_id',
+                'd.created_at As dispute_created_on',
+                'ads.trade_type',
+                't.fiat_value',
+                't.trade_status',
+                't.seller_id',
+                'seller.username As seller_username',
+                't.buyer_id',
+                'buyer.username As buyer_username'
+            )
+            ->where([
+                'd.guilty_user_id' => $userId,
+                't.coin_id' => $coinId
+            ]);
+        if (true == $year) {
+            $query = $query->whereYear('d.created_at', '=', $year);
+        }
+
+        if (true == $month) {
+            $query = $query->whereMonth('d.created_at', '=', $month);
+        }
+
+        if (true == $offset) {
+            $query = $query->offset($offset);
+        }
+
+        if (true == $limit) {
+            $query = $query->limit($limit);
+        }
+
+
+        $query = $query->latest('d.created_at')->get();
+
+        return $query;
+    }
+
+    public static function getAllDemographicDataCount($month, $year, $userId, $coinId)
+    {
+        $query = self::from('disputes As d')
+            ->join('trades As t', 't.id', '=', 'd.trade_id')
+            ->join('users As seller', 'seller.id', '=', 't.seller_id')
+            ->join('users As buyer', 'buyer.id', '=', 't.buyer_id')
+            ->join('advertisements As ads', 'ads.id', '=', 't.advertisement_id')
+            ->where([
+                'd.guilty_user_id' => $userId,
+                't.coin_id' => $coinId
+            ]);
+        if ($year != 0) {
+            $query = $query->whereYear('d.created_at', '=', $year);
+        }
+
+        if ($month != 0) {
+            $query = $query->whereMonth('d.created_at', '=', $month);
+        }
+
+
+        $query = $query->latest('d.created_at')->count();
+
+        return $query;
+    }
+    /*Get Queries End*/
+
+    /*Update Queries Start*/
+    public static function updateDisputeStatus($disputeId, $closeReason, $status)
+    {
+        return self::where('id', $disputeId)
+            ->update([
+                'dispute_status' => $status,
+                'dispute_close_reason' => $closeReason
+            ]);
+    }
+
+    public static function updateDispute($disputeId, $data)
+    {
+        return self::where('id', $disputeId)
+            ->update($data);
+    }
+
+    public static function setBuyerNotification($disputeId)
+    {
+        self::where('id', $disputeId)
+            ->update([
+                'is_buyer_notified' => self::BUYER_NOTIFIED
+            ]);
+    }
+
+    public static function unsetBuyerNotification($disputeId)
+    {
+        self::where('id', $disputeId)
+            ->update([
+                'is_buyer_notified' => self::BUYER_NOT_NOTIFIED
+            ]);
+    }
+
+    public static function setSellerNotification($disputeId)
+    {
+        self::where('id', $disputeId)
+            ->update([
+                'is_seller_notified' => self::SELLER_NOTIFIED
+            ]);
+    }
+
+    public static function unsetSellerNotification($disputeId)
+    {
+        self::where('id', $disputeId)
+            ->update([
+                'is_buyer_notified' => self::SELLER_NOT_NOTIFIED
+            ]);
+    }
+    /*Update Queries End*/
+}
+

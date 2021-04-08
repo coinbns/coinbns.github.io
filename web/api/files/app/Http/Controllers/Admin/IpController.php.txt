@@ -1,0 +1,39 @@
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use Illuminate\Http\Request;
+use App\Http\Controllers\Controller;
+use Storage;
+class IpController extends Controller
+{
+    public function viewAllowedIPs()
+    {
+        $content = json_decode(Storage::disk('local')->get('allowed_ips.json'), true);
+
+        return view('admin.allowed_ips.view')->with('allowed_ips',$content);
+    }
+
+    public function saveAllowedIPs(Request $request)
+    {
+        $converted=str_replace("\n",",",str_replace("\r","",$request->allowed_ips));
+        $array=explode(',',$converted);
+
+        $content[]="127.0.0.1";
+        foreach($array as $item){
+            if(!empty(trim($item))){
+                $ip=filter_var(trim($item), FILTER_VALIDATE_IP);
+                if($ip){
+                    if(false==in_array($ip,$content)) {
+                        array_push($content,$ip);
+                    }
+                }
+            }
+        }
+
+        Storage::disk('local')->put('allowed_ips.json', json_encode($content));
+
+        return redirect()->route('allowed.ip');
+    }
+}
+

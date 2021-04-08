@@ -1,0 +1,124 @@
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use Carbon\Carbon;
+use Illuminate\Http\Request;
+use Validator;
+use DB;
+use App\Models\User;
+use App\Models\ReportedUser;
+use App\Models\Advertisement;
+use App\Models\ReportedAdvertisement;
+use App\Models\OauthAccessToken;
+use App\Http\Controllers\Controller;
+use Illuminate\Support\Facades\Mail;
+use App\Mail\UserSuspended;
+
+class ReportController extends Controller
+{
+    protected $createOutsideTicketPage = '/support/create';
+
+    public function viewReportedUsers()
+    {
+        return view('admin.reports.users')->with('users', ReportedUser::getReportedUsers());
+    }
+
+
+    public function suspendUser($userId)
+    {
+
+        //convert date time into GMT
+
+        User::updateUser($userId, array(
+            'suspended_till' => Carbon::now()->addDays(2)
+        ));
+
+        OauthAccessToken::deleteByUserId($userId);
+
+        ReportedUser::inactivateReportedUserById($userId);
+
+        $user = User::findById($userId);
+        $message = "Dear " . $user->username . ", \n\n";
+        $message .= "Your account has been suspended till " . $user->suspended_till . "(GMT) after receiving many reports by other users. \n";
+        $message .= "You can wait till your suspension period ends or if you believe it is by any mistake, you can raise the ticket by clicking the below button \n";
+
+        $createOutsideTicketUrl = config('app.url') . $this->createOutsideTicketPage;
+
+        Mail::to($user->email)->queue(new UserSuspended(
+            $message,
+            $createOutsideTicketUrl
+        ));
+
+        return redirect()->route('cs.reported.users');
+    }
+
+    public function viewReportedAdvertisements()
+    {
+        //dd(ReportedAdvertisement::getReportedAds());
+        return view('admin.reports.ads')->with('ads', ReportedAdvertisement::getReportedAds());
+    }
+
+    public function viewReportedAdDetails($adId)
+    {
+        $reportedAd = ReportedAdvertisement::findByAdId($adId);
+        if(false == $reportedAd){
+            return response("Reported ad not found.", 404);
+        }
+
+        $advertisement = Advertisement::findAdvertisement($adId);
+        $messages = ReportedAdvertisement::getMessagesByAdId($adId, 0, false);
+
+        return view('admin.reports.individual_ad')->with(['messages'=> $messages, 'advertisement' => $advertisement]);
+    }
+
+    public function viewAdMessage(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'ad_id' => 'required|numeric',
+            'offset' => 'required|numeric',
+            'limit' => 'required|numeric',
+        ]);
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'error' => implode(', ', $validator->errors()->all())
+            ], 404);
+        }
+
+        $adId = $request->ad_id;
+        $offset = $request->offset;
+        $limit = $request->limit;
+
+        if (false == ReportedAdvertisement::findByAdId($adId)) {
+            return response()->json([
+                'success' => false,
+                'error' => 'This Ad is not reported yet'
+            ], 404);
+        }
+
+        $messages = ReportedAdvertisement::getMessagesByAdId($adId, $offset, $limit);
+
+        return response()->json([
+            'success' => true,
+            'data' => $messages,
+            'next_offset' => $offset + 5,
+            'ad_id' => $adId
+        ], 200);
+
+    }
+
+    public function reportAd($adId)
+    {
+        $ad = ReportedAdvertisement::findByAdId($adId);
+        if ($ad) {
+            Advertisement::updateAd($adId, array(
+                'is_reported' => 1
+            ));
+            return redirect()->route('cs.reported.ads');
+        } else {
+            abort(404);
+        }
+    }
+}
+

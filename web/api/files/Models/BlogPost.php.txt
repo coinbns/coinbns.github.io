@@ -1,0 +1,165 @@
+<?php
+
+namespace App\Models;
+
+use App\Models\MongoModel as Model;
+use Auth;
+use DateTime;
+
+class BlogPost extends Model
+{
+
+    protected $dates = ['announce_till', 'created_at', 'updated_at'];
+    //post type
+    const REGULAR_POST = 1;
+    const ANNOUNCEMENT = 2;
+
+    //post_status
+    const PUBLISHED = 1;
+    const DRAFT = 2;
+
+    /*Create Queries Start*/
+    public static function createPost($data)
+    {
+        $post = new self();
+
+        $post->author_id = (int)Auth::guard('admin')->user()->id;
+        $post->title = $data['title'];
+        $post->slug = $data['slug'];
+        $post->body = $data['body'];
+        $post->excerpt = $data['excerpt'];
+        $post->featured_image = $data['featured_image'];
+        $post->type = (int)$data['type'];
+        $post->tags = $data['tags'];
+        $post->announce_till = $data['announce_till'];
+        $post->post_status = (int)$data['post_status'];
+        $post->total_votes = (int)0;
+        $post->total_views = (int)0;
+        $post->votes_by_users = (object)[];
+        $post->status = $data['status'];
+
+        return $post->save();
+    }
+    /*Create Queries End*/
+
+    /*Find Queries Start*/
+    public static function findById($blogId)
+    {
+        return self::where('_id', $blogId)->first();
+    }
+
+    public static function findBySlug($slug)
+    {
+        return self::active()->where(['slug' => $slug, 'post_status' => self::PUBLISHED])->first();
+    }
+    /*Find Queries End*/
+
+    /*Get Queries Start*/
+    /**
+     * Gets Blog Posts from DB, for Admin Panel
+     *
+     * - If admin user is not SUPER i.e actual author then fetch his posts only.
+     *
+     * - Else, SUPER will get every posts.
+     *
+     * @param int $is_super
+     * @return mixed
+     */
+    public static function getAllBlog($is_super)
+    {
+        if ($is_super == 0) {
+            $q = self::where('author_id', (int)Auth::guard('admin')->user()->id)->get();
+        } else {
+            $q = self::get();
+        }
+
+        return $q;
+    }
+
+    /**
+     * Get ACTIVE blogs
+     *
+     * To be used for public / front panel
+     * @return mixed
+     */
+    public static function getActiveBlogs()
+    {
+        return self::where('post_status', self::PUBLISHED)->orderBy('created_at', 'desc')->get();
+    }
+
+    public static function getBlogsByIds($post_ids)
+    {
+        return self::whereIn('_id', $post_ids)->get();
+    }
+
+    public static function getBlogAndAnnouncementBaseQuery($tag = null, $text = null)
+    {
+        $base_query = self::select(
+            '_id',
+            'author_id',
+            'title',
+            'excerpt',
+            'featured_image',
+            'type',
+            'announce_till',
+            'updated_at',
+            'slug',
+            'username',
+            'tags',
+            'total_votes',
+            'total_views'
+        )->where('post_status', self::PUBLISHED);
+
+        if (true == $tag) {
+            $base_query = $base_query->where('tags', 'all', [$tag]);
+        }
+
+        if (true == $text) {
+            $base_query = $base_query->where(function ($query) use ($text) {
+                foreach ($text as $value) {
+                    $query = $query->orWhere(function ($internal_query) use ($value) {
+                        $internal_query->where('body', 'like', '%' . $value . '%')
+                            ->orWhere('excerpt', 'like', '%' . $value . '%')
+                            ->orWhere('title', 'like', '%' . $value . '%');
+                    });
+                }
+            });
+        }
+
+        $base_query = $base_query->orderBy('created_at', 'desc');
+
+        return $base_query;
+    }
+    /*Get Queries End*/
+
+    /*Update Queries Start*/
+    /**
+     * Updating a blog/announcement by finding by `_id` and then saving,
+     *
+     * Because `save()` event will be use to convert `announce_till` in mongo date as per  {@link https://github.com/jenssegers/laravel-mongodb/issues/1015#issuecomment-304427433 Jessengers MongoDB docs}
+     * @param string $blogId
+     * @param $data
+     */
+    public static function updatePost($blogId, $data)
+    {
+        $post = self::findById($blogId);
+
+        $post->author_id = (int)Auth::guard('admin')->user()->id;
+        $post->title = $data['title'];
+        $post->slug = $data['slug'];
+        $post->body = $data['body'];
+        $post->excerpt = $data['excerpt'];
+        $post->featured_image = $data['featured_image'];
+        $post->type = (int)$data['type'];
+        $post->tags = $data['tags'];
+        if (true == $data['announce_till']) {
+            $post->announce_till = $data['announce_till'] . ":00";
+        }
+        $post->post_status = (int)$data['post_status'];
+
+        $post->save();
+    }
+
+    /*Update Queries End*/
+}
+

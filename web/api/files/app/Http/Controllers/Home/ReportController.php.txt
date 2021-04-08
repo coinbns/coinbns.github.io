@@ -1,0 +1,94 @@
+<?php
+
+namespace App\Http\Controllers\Home;
+
+use Carbon\Carbon;
+use Illuminate\Http\Request;
+use App\Http\Controllers\Controller;
+use App\Models\ReportedUser;
+use App\Models\ReportedAdvertisement;
+use App\Models\User;
+use App\Models\Advertisement;
+use Auth;
+use Validator;
+
+class ReportController extends Controller
+{
+    public function reportUser($userId, Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'message' => 'required',
+        ]);
+        if ($validator->fails()) {
+            return response()->api(false, implode(', ', $validator->errors()->all()), null);
+        }
+
+        if (Auth::user()->id == $userId) {
+            return response()->api(false, "You can not report yourself", null);
+        }
+
+        $user = User::findById($userId);
+        if (false == $user) {
+            return response()->api(false, "User doesn't exist !!!", null);
+        }
+
+        //check if user is under suspension period
+        if (false == $user->suspended_till < Carbon::now()) {
+            return response()->api(false, "User is already suspended", null);
+        }
+
+
+        if (ReportedUser::findReportedUser($userId, Auth::user()->id)) {
+            return response()->api(false, "You have already reported this user", null);
+        }
+
+        $userReportId = ReportedUser::createUserReport([
+            'user_id' => $userId,
+            'by_user_id' => Auth::user()->id,
+            'message' => $request->message
+        ]);
+
+        return response()->api(true, "User reported successfully", $userReportId);
+    }
+
+    public function reportAdvertisement($advertisementId, Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'message' => 'required',
+        ]);
+        if ($validator->fails()) {
+            return response()->api(false, implode(', ', $validator->errors()->all()), null);
+        }
+
+        $ad = Advertisement::findAdvertisement($advertisementId);
+
+        if (false == $ad) {
+            return response()->api(false, "Advertisement doesn't exist !!!", null);
+        }
+
+        if ($ad->user_id == Auth::user()->id) {
+            return response()->api(false, "You can not report your own Advertisement", null);
+        }
+
+        if ($ad->is_reported == Advertisement::REPORTED) {
+            return response()->api(false, "Advertisement marked as reported by Admin", null);
+        }
+
+        if (ReportedAdvertisement::findByAdId($advertisementId, Auth::user()->id)) {
+            return response()->api(false, "Advertisement already reported by You", null);
+        }
+
+        $adReportId = ReportedAdvertisement::createAdReport([
+            'advertisement_id' => $advertisementId,
+            'user_id' => Auth::user()->id,
+            'message' => $request->message
+        ]);
+
+        $reponseData=[
+            'ad_id'=>$advertisementId,
+            'ad_report_id'=>$adReportId
+        ];
+        return response()->api(true, "Advertisement reported successfully", $reponseData);
+    }
+}
+

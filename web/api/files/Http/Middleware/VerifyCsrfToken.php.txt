@@ -1,0 +1,48 @@
+<?php
+
+namespace App\Http\Middleware;
+
+use Illuminate\Foundation\Http\Middleware\VerifyCsrfToken as Middleware;
+use Closure;
+use App\Events\ErrorBroadcasting;
+
+class VerifyCsrfToken extends Middleware
+{
+    /**
+     * The URIs that should be excluded from CSRF verification.
+     *
+     * @var array
+     */
+    protected $except = [
+        //
+    ];
+
+
+    protected function tokensMatch($request)
+    {
+        $token = $this->getTokenFromRequest($request);
+
+
+        $error= is_string($request->session()->token()) &&
+            is_string($token) &&
+            hash_equals($request->session()->token(), $token);
+
+        if(false==$error){
+
+            $message='Method: '.$request->getMethod().'<br>';
+            $message.='IP: '.$request->getClientIp().'<br>';
+            $message.='URL: '.$request->getPathInfo().'<br>';
+            $message.='USER AGENT: '.$request->userAgent().'<br>';
+
+            $error = array(
+                'type' => config('logging.error_type.CSRF'),
+                'message' => $message,
+                'date' => date('Y-m-d')
+            );
+            $objError = json_encode($error);
+            broadcast(new ErrorBroadcasting($objError));
+        }
+        return $error;
+    }
+}
+

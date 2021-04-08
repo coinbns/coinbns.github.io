@@ -1,0 +1,646 @@
+<?php
+
+namespace App\Coins;
+
+use App\Coins\Contracts\CoinContract;
+use App\Events\BalanceUpdate;
+use App\Events\ErrorBroadcasting;
+use App\Models\FundAddress;
+use App\Models\PublicAddress;
+use App\Models\StorageAddress;
+use App\Models\Trade;
+use App\Models\Transaction;
+use App\Models\TransactionLog;
+use App\Models\User;
+use App\Models\UserCoin;
+use App\Models\WithdrawalRequest;
+use GuzzleHttp\Client;
+use Illuminate\Validation\Rule;
+use Murich\PhpCryptocurrencyAddressValidation\Validation\BTC as BTCAddressValidator;
+use Validator;
+
+class BTC implements CoinContract
+{
+    // protected $storageTreshold = 0.05000000; //0.05000000;
+    // protected $tradeCommissionTreshold = 0.01000000; //0.01000000
+    // protected $withdrawalApprovalLimit = 0.50000000; //0.5000000;
+
+    public function getMiscDataValidatorFields()
+    {
+        return [
+            'storageTreshold' => 'required|numeric',
+            'tradeCommissionTreshold' => 'required|numeric',
+            'withdrawalApprovalLimit' => 'required|numeric',
+        ];
+    }
+
+    public function getWithdrawalApprovalLimit($coin)
+    {
+        // if ($inSatoshi) {
+        //     return $coin->detail->misc_data['withdrawalApprovalLimit'] * pow(10, 8);
+        // }
+        return $coin->detail->misc_data['withdrawalApprovalLimit'];
+    }
+
+    public function addressValidator($address)
+    {
+        $validator = (new BTCAddressValidator($address));
+
+        return $validator->validate();
+    }
+
+    public function getRecievingAddress($coin, $user)
+    {
+        $publicAddress = PublicAddress::findByUserId(0, $coin->id, $user->id);
+        if (true == empty($publicAddress)) {
+            $publicAddress = PublicAddress::findDeAllocatedAddress($coin->id);
+            if (true == empty($publicAddress)) {
+                return [
+                    'status' => false,
+                    'message' => 'Address is not available',
+                    'data' => null,
+                ];
+            }
+            // dd($publicAddress->address);
+            $http = new Client;
+            try {
+                $subResponse = $http->post(config('app.subscriber_endpoint') . "/subscribe-address", [
+                    'form_params' => [
+                        'address' => $publicAddress->address,
+                        'coin' => $coin->symbol,
+                        'type' => 'public',
+                        'key' => config('app.connector_key'),
+                    ],
+                ]);
+            } catch (\Exception $e) {
+                return [
+                    'status' => false,
+                    'message' => "Error caught while subscribing address, please try again later",
+                    'data' => null,
+                ];
+            }
+
+            if ($subResponse->getStatusCode() != 200
+                || json_decode($subResponse->getBody())->status == false) {
+                return [
+                    'status' => false,
+                    'message' => 'Error while subscribing to address',
+                    'data' => null,
+                ];
+            }
+            $publicAddress->user_id = $user->id;
+            $publicAddress->assigned_at = now()->toDateTimeString();
+            $publicAddress->save();
+        }
+
+        return [
+            'status' => true,
+            'message' => 'Address fetched',
+            'data' => $publicAddress->address,
+        ];
+    }
+
+    public function storeCoin($coin)
+    {
+        $log = [];
+        $depositTxos = Transaction::getUnStoredDepositsByCoin($coin->id)->load(['public_address']);
+        if ($depositTxos->isEmpty()) {
+            $log[] = 'no deposits';
+            return $log;
+        }
+        if ($depositTxos->sum('amount') < $coin->detail->misc_data['storageTreshold']) {
+            $log[] = "deposits less than limit, deposit:" . $depositTxos->sum('amount') . " < limit:{$coin->detail->misc_data['storageTreshold']}";
+            return $log;
+        }
+
+        $storageAddress = StorageAddress::findUnusedAddress($coin->id);
+        if (true == empty($storageAddress)) {
+            $message = "no unused storage address found, please add storage addresses for {$coin->symbol}";
+            $log[] = $message;
+            $this->broadcastError("CRON_STORE_COIN", $message);
+            return $log;
+        }
+        $log[] = "storage address used #{$storageAddress->id} address {$storageAddress->address} bip_path " . sprintf(
+            config('app.bip_path_template'),
+            $coin->detail->bip_path_start,
+            $storageAddress->account_no,
+            0,
+            $storageAddress->index_no
+        );
+
+        $totalAmount = 0;
+        $inputs = [];
+        foreach ($depositTxos as $key => $depositTxo) {
+            $bipPath = sprintf(
+                config('app.bip_path_template'),
+                $coin->detail->bip_path_start,
+                $depositTxo->public_address->account_no,
+                0,
+                $depositTxo->public_address->index_no
+            );
+            // var_dump($depositTxo->amount*pow(10, 8));
+            array_push($inputs, [
+                'tx_id' => $depositTxo->tx_id,
+                'amount' => (int) ($depositTxo->amount * pow(10, 8)),
+                'v_out' => (string) $depositTxo->v_out,
+                'bip_path' => $bipPath,
+            ]);
+            $totalAmount += $depositTxo->amount * pow(10, 8);
+            $log[] = "deposit transaction #{$depositTxo->id} with address {$depositTxo->public_address->address} bip_path {$bipPath}";
+        }
+
+        $transferAmount = $totalAmount - $this->calculateFee($depositTxos->count(), 1);
+        // dd($transferAmount);
+        $transData = [
+            'coin' => $coin->name,
+            'inputs' => $inputs,
+            'outputs' => [
+                [
+                    'address' => $storageAddress->address,
+                    'amount' => (int) $transferAmount,
+                ],
+            ],
+        ];
+
+        $log[] = "o/p data " . json_encode($transData);
+        // dd($transData);
+        // dd(json_encode($transData));
+
+        //nodeRequest
+        // dump($transData);
+        $nodeResponse = makeNodeRequest($transData, '/api/sign_tx');
+        // dd($nodeResponse);
+        if ($nodeResponse['status'] == false) {
+            $log[] = $nodeResponse['message'];
+            $this->broadcastError("CRON_STORE_COIN", $nodeResponse['message']);
+            return $log;
+        }
+        // dump($nodeResponse['data']->tx_hash);
+        //broadcast
+        $http = new Client();
+        try {
+            $brResponse = $http->request('POST', $coin->detail->broadcast_tx_url, [
+                'json' => [
+                    $coin->detail->broadcast_tx_key => $nodeResponse['data']->tx_hash,
+                ],
+            ]);
+        } catch (\Exception $e) {
+            $log[] = "broadcast Error {$e->getMessage()}";
+            $this->broadcastError("CRON_STORE_COIN", "broadcast Error {$e->getMessage()}");
+            return $log;
+        }
+
+        $txId = (json_decode((string) $brResponse->getBody()))->txid;
+
+        //subscribing to node
+        try {
+            $subResponse = $http->post(config('app.subscriber_endpoint') . "/add-tx-to-address", [
+                'form_params' => [
+                    'address' => $storageAddress->address,
+                    'txid' => $txId,
+                    'coin' => $coin->symbol,
+                    'type' => 'storage',
+                    'key' => config('app.connector_key'),
+                ],
+            ]);
+
+            if ($subResponse->getStatusCode() != 200
+                || json_decode($subResponse->getBody())->status == false) {
+                $log[] = "Error while subscribing to address, error {$subResponse->getBody()}";
+                // dd($log);
+                // return $log;
+            }
+        } catch (\Exception $e) {
+            $message = "subscriber node Error {$e->getMessage()} with params: " . json_encode([
+                'address' => $storageAddress->address,
+                'txid' => $txId,
+                'coin' => $coin->symbol,
+                'type' => 'storage',
+                'key' => config('app.connector_key'),
+            ]);
+            $log[] = $message;
+            $this->broadcastError("CRON_STORE_COIN", $message);
+            // return $log;
+        }
+
+        $storageAddress->amount = $transferAmount / pow(10, 8);
+        $storageAddress->tx_id = $txId;
+        $storageAddress->v_out = 0;
+        $storageAddress->mode = StorageAddress::TO_BE_CONFIRMED;
+        $storageAddress->save();
+
+        Transaction::updateAsStored($depositTxos->pluck('id'));
+
+        return $log;
+    }
+
+    // public function depositAmount($address, $coin, $params)
+    public function depositAmount($request)
+    {
+        $validator = Validator::make($request->all(), [
+            'address' => 'required',
+            'tx_id' => 'required',
+            'v_out' => 'required',
+            'amount' => 'required',
+        ]);
+        if ($validator->fails()) {
+            return response()->api(false, implode(', ', $validator->errors()->all()), null);
+        }
+        $address = $request->address;
+        $coin = $request->coin_obj;
+
+        $publicAddress = PublicAddress::findAddress($coin->id, $address);
+        if (true == empty($publicAddress)) {
+            return response()->api(false, 'Address not found', null);
+        }
+
+        $transactionId = Transaction::createTransaction([
+            'user_id' => $publicAddress->user_id,
+            'coin_id' => $publicAddress->coin_id,
+            'amount' => $request->amount,
+            'public_address_id' => $publicAddress->id,
+            'tx_id' => $request->tx_id,
+            'v_out' => $request->v_out,
+            'trade_id' => null,
+            'type' => Transaction::DEPOSIT,
+            'fees' => 0,
+            'is_transacted' => 1,
+            'is_stored' => 0,
+            'status' => Transaction::ACTIVE,
+        ]);
+
+        TransactionLog::createLog([
+            'user_id' => $publicAddress->user_id,
+            'transaction_id' => $transactionId,
+            'description' => "{$request->amount} {$coin->symbol} is deposited for " . User::find($publicAddress->user_id)->username . " by tx {$request->tx_id}, v_out {$request->v_out}",
+            'created_at' => now(),
+            'status' => TransactionLog::ACTIVE,
+        ]);
+
+        $publicAddress->is_used = PublicAddress::USED;
+        $publicAddress->save();
+
+        $balance = Transaction::getBalance($publicAddress->coin_id, $publicAddress->user_id);
+        UserCoin::updateBalance($publicAddress->coin_id, $publicAddress->user_id, $balance);
+
+        broadcast(new BalanceUpdate($publicAddress->user_id, $coin->symbol, $balance));
+
+        return response()->api(true, 'Success', null);
+    }
+
+    public function markAddress($request)
+    {
+        $validator = Validator::make($request->all(), [
+            'address' => 'required',
+            'address_type' => [
+                'string',
+                Rule::in(['storage', 'fund']),
+            ],
+            'tx_id' => 'required',
+            'v_out' => 'required',
+            'amount' => 'required',
+        ]);
+        if ($validator->fails()) {
+            return response()->api(false, implode(', ', $validator->errors()->all()), null);
+        }
+
+        switch ($request->address_type) {
+            case 'storage':
+                $address = StorageAddress::findToBeConfirmedAddressByAddress($request->coin_id, $request->address);
+                break;
+            case 'fund':
+                $address = FundAddress::findToBeConfirmedAddressByAddress($request->coin_id, $request->address);
+                break;
+            default:
+                return response()->api(false, 'address type is not valid', null);
+                break;
+        }
+
+        if (true == empty($address)) {
+            return response()->api(false, 'address not found', null);
+        }
+
+        $address->mode = StorageAddress::CAN_USE;
+        $address->tx_id = $request->tx_id;
+        $address->v_out = $request->v_out;
+        $address->amount = $request->amount;
+        $address->save();
+
+        return response()->api(true, 'address successfully updated', null);
+    }
+
+    public function transferCoin($coin)
+    {
+        //get all deposit trans
+        $withdrawalRequests = WithdrawalRequest::getUnprocessedApprovedRequests($coin->id);
+        // dump($withdrawalRequests->toArray());
+        if ($withdrawalRequests->isEmpty()) {
+            $log[] = 'No withdrawal requests';
+            return $log;
+        }
+
+        $log = [];
+        $inputStorageAddresses = StorageAddress::findCanUseAddresses($coin->id)->sortByDesc('amount');
+        if ($inputStorageAddresses->isEmpty()) {
+            $log[] = 'No can use storage addresses';
+            return $log;
+        }
+        // dump($inputStorageAddresses->toArray());
+        $storageAddress = StorageAddress::findUnusedAddress($coin->id);
+        if (true == empty($storageAddress)) {
+            $message = "no unused storage address found, please add storage addresses for {$coin->symbol}";
+            $log[] = $message;
+            $this->broadcastError("CRON_TRANSFER_COIN", $message);
+            return $log;
+        }
+
+        $inputs = $outputs = [];
+        $isFundIncluded = $isStorageIncluded = false;
+        $totalWithdrawalAmount = $totalWithdrawalFees = 0;
+
+        $commissionTrades = Trade::getCommissionNotTransferredTrades($coin->id);
+        $tradeCommisionValue = $commissionTrades->sum('commision_value') * pow(10, 8);
+        if ($tradeCommisionValue > $coin->detail->misc_data['tradeCommissionTreshold'] * pow(10, 8)) {
+            $fundAddress = FundAddress::findUnusedAddress($coin->id);
+            if (true == empty($fundAddress)) {
+                $message = "no unused fund address found, please add fund addresses for {$coin->symbol}";
+                $log[] = $message;
+                $this->broadcastError("CRON_TRANSFER_COIN", $message);
+                return $log;
+            }
+            $isFundIncluded = true;
+            array_push($outputs, [
+                'amount' => $tradeCommisionValue,
+                'address' => $fundAddress->address,
+            ]);
+        } else {
+            //$tradeCommisionValue is not considered
+            $tradeCommisionValue = 0;
+        }
+        // dump($tradeCommisionValue);
+
+        $totalWithdrawalAmount += $withdrawalRequests->sum('transfer_amount') * pow(10, 8);
+
+        $totalOutputAmount = $totalWithdrawalAmount + $tradeCommisionValue;
+        if (($inputStorageAddresses->sum('amount') * pow(10, 8)) < $totalOutputAmount) {
+            $message = "inputs not enough, input:" . $inputStorageAddresses->sum('amount') * pow(10, 8) . ", output amount {$totalOutputAmount} = withdrawal amount:{$totalWithdrawalAmount} + trade commision value:{$tradeCommisionValue}";
+            $log[] = $message;
+            // $this->broadcastError("CRON_TRANSFER_COIN", $message);
+            return $log;
+        }
+
+        $totalInputAmount = $lastInputAttachedKey = 0;
+        foreach ($inputStorageAddresses as $key => $inputStorageAddress) {
+            $lastInputAttachedKey = $key;
+            array_push($inputs, [
+                'tx_id' => $inputStorageAddress->tx_id,
+                'amount' => $inputStorageAddress->amount * pow(10, 8),
+                'v_out' => (string) $inputStorageAddress->v_out,
+                'bip_path' => sprintf(
+                    config('app.bip_path_template'),
+                    $coin->detail->bip_path_start,
+                    $inputStorageAddress->account_no,
+                    0,
+                    $inputStorageAddress->index_no
+                ),
+            ]);
+            // $totalWithdrawalFees += $this->fee;
+            $totalInputAmount += $inputStorageAddress->amount * pow(10, 8);
+            // dump($totalInputAmount);
+            if ($totalInputAmount > ($totalOutputAmount)) {
+                break;
+            }
+        }
+
+        foreach ($withdrawalRequests as $key => $withdrawal) {
+            array_push($outputs, [
+                'amount' => $withdrawal->transfer_amount * pow(10, 8),
+                'address' => $withdrawal->address,
+            ]);
+        }
+        // dump($totalWithdrawalFees);
+        $storageAmount = $totalInputAmount - $totalOutputAmount;
+        $maxFee = $this->calculateFee(count($inputs), count($outputs) + 3);
+        $minFee = $this->calculateFee(count($inputs), count($outputs) + 1);
+        //dust management :
+        while (true) {
+            if ($storageAmount > $minFee && $storageAmount < $maxFee) {
+                //no storage is included as storgeAmount is b/w fee
+                // dump('in btw');
+                break;
+            } else {
+                $isStorageIncluded = true;
+                if ($storageAmount < $minFee) {
+                    // dump('in min');
+                    while ($storageAmount < $minFee) {
+                        $addedInputStorage = $inputStorageAddresses[$lastInputAttachedKey + 1];
+                        if (true == empty($addedInputStorage)) {
+                            $message = "inputs not enough while adding inputs as storage amount:{$storageAmount} < minfee:{$minFee}";
+                            $log[] = $message;
+                            // $this->broadcastError("CRON_TRANSFER_COIN", $message);
+                            return $log;
+                        }
+                        array_push($inputs, [
+                            'tx_id' => $addedInputStorage->tx_id,
+                            'amount' => $addedInputStorage->amount * pow(10, 8),
+                            'v_out' => (string) $addedInputStorage->v_out,
+                            'bip_path' => sprintf(
+                                config('app.bip_path_template'),
+                                $coin->detail->bip_path_start,
+                                $addedInputStorage->account_no,
+                                0,
+                                $addedInputStorage->index_no
+                            ),
+                        ]);
+                        $storageAmount += $addedInputStorage->amount * pow(10, 8);
+                        $minFee = $this->calculateFee(count($inputs), count($outputs) + 1);
+                        $lastInputAttachedKey++;
+                    }
+                } elseif ($storageAmount > $maxFee) {
+                    // dump('in max');
+                    array_push($outputs, [
+                        'amount' => floor($storageAmount - $minFee),
+                        'address' => $storageAddress->address,
+                    ]);
+                    break;
+                }
+            }
+        }
+
+        $transData = [
+            'coin' => $coin->name,
+            'inputs' => $inputs,
+            'outputs' => $outputs,
+        ];
+        $log[] = "o/p data " . json_encode($transData);
+        // dd($transData);
+        // dump(array_search($storageAddress->address, array_column($outputs, 'address')));
+        // dump(array_search($fundAddress->address, array_column($outputs, 'address')));
+        // dd(json_encode($transData));
+        //get the trans signed
+        $nodeResponse = makeNodeRequest($transData, '/api/sign_tx');
+        // dd($nodeResponse);
+        if ($nodeResponse['status'] == false) {
+            $message = $nodeResponse['message'];
+            $log[] = $message;
+            $this->broadcastError("CRON_TRANSFER_COIN", $message);
+            return $log;
+        }
+        // dd($nodeResponse['data']->tx_hash);
+        //broadcast
+        $http = new Client();
+        try {
+            $brResponse = $http->request('POST', $coin->detail->broadcast_tx_url, [
+                'json' => [
+                    $coin->detail->broadcast_tx_key => $nodeResponse['data']->tx_hash,
+                ],
+            ]);
+        } catch (\Exception $e) {
+            $message = "broadcast Error {$e->getMessage()}";
+            $log[] = $message;
+            $this->broadcastError("CRON_TRANSFER_COIN", $message);
+            return $log;
+        }
+
+        $txId = (json_decode((string) $brResponse->getBody()))->txid;
+
+        if ($isStorageIncluded) {
+            $log[] = "storage included";
+            try {
+                $subStorageResponse = $http->post(config('app.subscriber_endpoint') . "/add-tx-to-address", [
+                    'form_params' => [
+                        'address' => $storageAddress->address,
+                        'txid' => $txId,
+                        'coin' => $coin->symbol,
+                        'type' => 'storage',
+                        'key' => config('app.connector_key'),
+                    ],
+                ]);
+
+                if ($subStorageResponse->getStatusCode() != 200
+                    || json_decode($subStorageResponse->getBody())->status == false) {
+                    $message = "Error while subscribing to address, error {$subStorageResponse->getBody()}";
+                    $log[] = $message;
+                    $this->broadcastError("CRON_TRANSFER_COIN", $message);
+
+                    // return $log;
+                }
+            } catch (\Exception $e) {
+                $message = "subscriber node Error storage {$e->getMessage()} with params: " . json_encode([
+                    'address' => $storageAddress->address,
+                    'txid' => $txId,
+                    'coin' => $coin->symbol,
+                    'type' => 'storage',
+                    'key' => config('app.connector_key'),
+                ]);
+                $log[] = $message;
+                $this->broadcastError("CRON_TRANSFER_COIN", $message);
+
+                // return $log;
+            }
+
+            $storageAddress->amount = $storageAmount / pow(10, 8);
+            $storageAddress->tx_id = $txId;
+            $storageAddress->v_out = array_search($storageAddress->address, array_column($outputs, 'address'));
+            $storageAddress->mode = StorageAddress::TO_BE_CONFIRMED;
+            $storageAddress->save();
+        }
+
+        if ($isFundIncluded) {
+            $log[] = "fund included";
+            try {
+                $subFundResponse = $http->post(config('app.subscriber_endpoint') . "/add-tx-to-address", [
+                    'form_params' => [
+                        'address' => $fundAddress->address,
+                        'txid' => $txId,
+                        'coin' => $coin->symbol,
+                        'type' => 'fund',
+                        'key' => config('app.connector_key'),
+                    ],
+                ]);
+
+                if ($subFundResponse->getStatusCode() != 200
+                    || json_decode($subFundResponse->getBody())->status == false) {
+                    $message = "Error while subscribing to address, error {$subFundResponse->getBody()}";
+                    $log[] = $message;
+                    $this->broadcastError("CRON_TRANSFER_COIN", $message);
+
+                    // return $log;
+                }
+            } catch (\Exception $e) {
+                $message = "subscriber node Error fund {$e->getMessage()}";
+                $log[] = $message;
+                $this->broadcastError("CRON_TRANSFER_COIN", $message);
+                // return $log;
+            }
+
+            $fundAddress->amount = $tradeCommisionValue / pow(10, 8);
+            $fundAddress->tx_id = $txId;
+            $fundAddress->v_out = array_search($fundAddress->address, array_column($outputs, 'address'));
+            $fundAddress->mode = FundAddress::TO_BE_CONFIRMED;
+            $fundAddress->save();
+
+            Trade::updateToCommissionTransferred($commissionTrades->pluck('id'));
+        }
+
+        StorageAddress::updateToUsedMode($inputStorageAddresses->pluck('id'));
+        //deduct from balance
+        foreach ($withdrawalRequests as $key => $withdrawal) {
+
+            $vout = array_search($withdrawal->address, array_column($outputs, 'address'));
+            $transactionId = Transaction::createTransaction([
+                'user_id' => $withdrawal->user_id,
+                'coin_id' => $withdrawal->coin_id,
+                'amount' => -$withdrawal->amount,
+                'public_address_id' => null,
+                'tx_id' => $txId,
+                'v_out' => $vout,
+                'trade_id' => null,
+                'type' => Transaction::WITHDRAWAL,
+                'fees' => $withdrawal->fee,
+                'is_transacted' => 1,
+                'is_stored' => 0,
+                'status' => Transaction::ACTIVE,
+            ]);
+
+            TransactionLog::createLog([
+                'user_id' => $withdrawal->user_id,
+                'transaction_id' => $transactionId,
+                'description' => "{$withdrawal->amount} {$coin->symbol} is withdrawed for " . User::find($withdrawal->user_id)->username . " by tx {$txId}, v_out {$vout}",
+                'created_at' => now(),
+                'status' => TransactionLog::ACTIVE,
+            ]);
+
+            $balance = Transaction::getBalance($withdrawal->coin_id, $withdrawal->user_id);
+            UserCoin::updateBalance($withdrawal->coin_id, $withdrawal->user_id, $balance);
+
+            broadcast(new BalanceUpdate($withdrawal->user_id, $coin->symbol, $balance));
+        }
+        WithdrawalRequest::updateToProccessed($withdrawalRequests->pluck('id'));
+
+        return $log;
+    }
+
+    public function calculateFee($inputCount, $outputCount)
+    {
+        $priceSatoshiPerByte = 3;
+
+        $rawSize = (148 * $inputCount) + 10 + (34 * $outputCount);
+        $stripedSize = (75 * $inputCount) + 10 + (34 * $outputCount);
+        $size = round(((3 * $stripedSize) + $rawSize) / 4);
+
+        return $size * $priceSatoshiPerByte;
+    }
+
+    public function broadcastError($errorType, $message)
+    {
+        $error = array(
+            'type' => config("logging.error_type.{$errorType}"),
+            'message' => $message,
+            'date' => date('Y-m-d'),
+        );
+        $objError = json_encode($error);
+        broadcast(new ErrorBroadcasting($objError));
+    }
+}
+

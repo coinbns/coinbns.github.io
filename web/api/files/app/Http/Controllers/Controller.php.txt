@@ -1,0 +1,35 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use Illuminate\Foundation\Bus\DispatchesJobs;
+use Illuminate\Routing\Controller as BaseController;
+use Illuminate\Foundation\Validation\ValidatesRequests;
+use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
+use Auth;
+use Cache;
+
+class Controller extends BaseController
+{
+    use AuthorizesRequests, DispatchesJobs, ValidatesRequests;
+
+    public function formatScale($value)
+    {   
+        $value = str_replace(',', '', $value);
+        if ($value > 1000000 && $value < 1000000000) {
+            return number_format($value/1000000) ." M";
+        } else if ($value > 1000000000) {
+            return number_format($value/1000000000) ." B";
+        } else {
+            return ($value);
+        }
+    }
+
+    public function evaluateRole($role){
+        if(Auth::guard('admin')->user()->roles()->get()[0]->name==$role){
+            return true;
+        }
+        return false;
+    }
+}
+

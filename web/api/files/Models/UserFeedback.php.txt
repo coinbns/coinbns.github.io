@@ -1,0 +1,52 @@
+<?php
+
+namespace App\Models;
+
+use App\Models\Model;
+
+class UserFeedback extends Model
+{
+    /*Create Queries Start*/
+    public static function createFeedback($data)
+    {
+        $feedback = new self;
+
+        $feedback->by_user_id = $data['by_user_id'];
+        $feedback->for_user_id = $data['for_user_id'];
+        $feedback->trade_id = $data['trade_id'];
+        $feedback->stars = $data['stars'];
+        $feedback->feedback = $data['feedback'];
+
+        $feedback->save();
+
+        return $feedback->id;
+    }
+    /*Create Queries End*/
+
+    /*Find Queries Start*/
+    /**
+     * Find Feedback given by user for a trade.
+     *
+     * @param int $userId
+     * @param int $tradeId
+     * @return mixed
+     */
+    public static function findFeedbackGivenUserByTradeId($userId, $tradeId)
+    {
+        return self::where([
+            'by_user_id' => $userId,
+            'trade_id' => $tradeId
+        ])->first();
+    }
+    /*Find Queries End*/
+
+    /*Get Queries End*/
+    public static function getFeedbacksForUser($userId)
+    {
+        return self::select('feedback','stars')->where([
+            'for_user_id' => $userId,
+        ])->get();
+    }
+    /*Get Queries End*/
+}
+

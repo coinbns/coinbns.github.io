@@ -1,0 +1,99 @@
+<?php
+
+namespace App\Http\Controllers\Home;
+
+use App\Coins\CoinStrategy;
+use App\Http\Controllers\Controller;
+use App\Models\Coin;
+use App\Models\Country;
+use App\Models\PaymentMethod;
+use App\Models\TicketReason;
+use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
+use Validator;
+
+class MiscContoller extends Controller
+{
+    public function getCountries(Request $request)
+    {
+        $countries = Country::getActiveCountries();
+        foreach ($countries as $key => $country) {
+            $country->setHidden([
+                'created_at', 'updated_at', 'price', 'status',
+            ]);
+        }
+
+        return response()->api(true, 'Success', $countries);
+    }
+
+    public function getCoins(Request $request)
+    {
+        $coins = Coin::getActiveCoins();
+        foreach ($coins as $key => $coin) {
+            $coin->setHidden([
+                'created_at', 'updated_at', 'price', 'status',
+            ]);
+        }
+
+        return response()->api(true, 'Success', $coins);
+    }
+
+    public function getMiscs(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'data' => [
+                'required', 'array',
+                Rule::in(['coins', 'payment_methods', 'countries', 'ticket_reasons']),
+            ],
+        ]);
+        if ($validator->fails()) {
+            return response()->api(false, implode(', ', $validator->errors()->all()), null);
+        }
+
+        $returnData = [];
+        foreach ($request->data as $key => $data) {
+            switch ($data) {
+                case 'coins':
+                    $returnData['coins'] = Coin::getActiveCoins()->each(function($coin) {
+                        return $coin->setVisible(['id', 'name', 'symbol', 'color']);
+                    });
+                    break;
+                case 'payment_methods':
+                    $returnData['payment_methods'] = PaymentMethod::getActivePaymentMethods();
+                    break;
+                case 'countries':
+                    $returnData['countries'] = Country::getActiveCountries();
+                    break;
+                case 'ticket_reasons':
+                    if (auth('api')->user() === null) {
+                        $reasons = TicketReason::getOutsideReasons();
+                    } else {
+                        $reasons = TicketReason::getLoggedInReasons();
+                    }
+
+                    if (false == $reasons) {
+                        $returnData['ticket_reasons'] = [];
+                    }
+                    $returnData['ticket_reasons'] = $reasons;
+                    break;
+            }
+        }
+
+        return response()->api(true, 'Success', $returnData);
+    }
+
+    public function validateAddress(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'address' => 'required|string',
+        ]);
+        if ($validator->fails()) {
+            return response()->api(false, implode(', ', $validator->errors()->all()), null);
+        }
+        // dd((new CoinStrategy($request->coin)));
+        $isAddressValid = (new CoinStrategy($request->coin))->validateAddress($request->address);
+
+        return response()->api(true, 'Success', $isAddressValid);
+    }
+}
+

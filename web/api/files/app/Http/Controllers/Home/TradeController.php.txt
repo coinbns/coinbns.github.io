@@ -1,0 +1,1085 @@
+<?php
+
+namespace App\Http\Controllers\Home;
+
+use App\Events\BalanceUpdate;
+use App\Events\BuyerConfirmedPayment;
+use App\Events\BuyerRaisedDispute;
+use App\Events\BuyerRecievedCoin;
+use App\Events\DisputeRaised;
+use App\Events\RecipientReadMessage;
+use App\Events\SellerReleasedCoin;
+use App\Events\TradeCancelled;
+use App\Events\TradeChatMessage;
+use App\Http\Controllers\Controller;
+use App\Models\Admin;
+use App\Models\Advertisement;
+use App\Models\ChatMessage;
+use App\Models\Coin;
+use App\Models\Currency;
+use App\Models\Dispute;
+use App\Models\DisputeReason;
+use App\Models\Notification;
+use App\Models\Trade;
+use App\Models\TradeLog;
+use App\Models\Transaction;
+use App\Models\TransactionLog;
+use App\Models\User;
+use App\Models\UserCoin;
+use App\Models\WithdrawalRequest;
+use App\Notifications\TradeRequestAccepted;
+use App\Notifications\TradeRequestRejected;
+use App\Trades\BTCTradeHandler;
+use Auth;
+use BitWasp\Bitcoin\Address\AddressCreator;
+use BitWasp\Bitcoin\Bitcoin;
+use BitWasp\Bitcoin\Key\PrivateKeyFactory;
+use BitWasp\Bitcoin\Network\NetworkFactory;
+use BitWasp\Bitcoin\Script\ScriptFactory;
+use BitWasp\Bitcoin\Transaction\Factory\Signer;
+use BitWasp\Bitcoin\Transaction\OutPoint;
+use BitWasp\Bitcoin\Transaction\TransactionFactory;
+use BitWasp\Bitcoin\Transaction\TransactionOutput;
+use BitWasp\Buffertools\Buffer;
+use GuzzleHttp\Client;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\Rule;
+use Intervention\Image\ImageManagerStatic as Image;
+use Storage;
+use Validator;
+
+class TradeController extends Controller
+{
+
+    public $users = [
+        'alice' => [
+            'public' => 'mmLDcBzc4fhocduFaNNSWtE1hWyC1Bt5W2',
+            // 'public' => 'qqlu3a3xqrjuyhneadzffqf6ntpgnust056t843j9v',
+            'private' => 'cUB8Kjyw6BbGefxAaVx7uKH1G6xbctzshQMoWQDVw4cmExmqqcjX',
+        ],
+        'bob' => [
+            'public' => 'n4PSqVwEuMfCNuj2dmYTQJFoSCthaeAZQK',
+            // 'public' => 'qrad7epp2nlft64m3ruesp8a8cz5fyhq2qmlykqr27',
+            'private' => 'cRCjY7wCqh8HyQzfkauG1XuXPFJuKaLNKscBoJjZEyzHwAHG3uVT',
+        ],
+        'vig' => [
+            'public' => 'myikxDsg6pBmYcFRNfh8NEbCmAxhutBxQR',
+            'private' => 'cUmTSc4tWSMSkfN8Pcx79Xaj6wUKYDkZQW463i7p4dTcRNXrkTMf',
+        ],
+    ];
+
+    public function answerTradeRequest($tradeId, Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'answer' => 'required|boolean',
+            'notification_id' => 'required',
+        ]);
+        if ($validator->fails()) {
+            return response()->api(false, implode(', ', $validator->errors()->all()), null);
+        }
+
+        $trade = Trade::findPendingTrade($tradeId);
+        if (true == empty($trade)) {
+            return response()->api(false, 'Trade Request Not Found', null);
+        }
+        if (false == $trade->isUserInvolved(Auth::user())) {
+            return response()->api(false, 'You are not authorized', null);
+        }
+
+        if ($request->answer == false) {
+            $trade->trade_status = Trade::REJECTED;
+            $trade->save();
+
+            $advertisement = Advertisement::findWithCurrency($trade->advertisement_id);
+            $message = sprintf(
+                "%s rejected to %s %f %s",
+                Auth::user()->username,
+                ($advertisement->trade_type == Advertisement::BUY) ? "buy" : "sell",
+                $trade->coin_original_value,
+                $advertisement->coin_symbol
+            );
+
+            $notifiable = ($advertisement->user_id == $trade->buyer_id) ? User::find($trade->seller_id) : User::find($trade->buyer_id);
+            $notifiable->notify(new TradeRequestRejected($tradeId, $message, (int)$advertisement->id));
+
+            TradeLog::createLog([
+                'user_id' => Auth::id(),
+                'trade_id' => $tradeId,
+                'description' => Auth::user()->username . " rejected request for {$advertisement->coin_symbol} trade #{$tradeId}",
+                'created_at' => now(),
+                'status' => TradeLog::ACTIVE,
+            ]);
+        } else {
+            $advertisement = Advertisement::findWithCurrency($trade->advertisement_id);
+            if (true == empty($advertisement)) {
+                return response()->api(false, 'Advertisement not found', null);
+            }
+
+            $coin = Coin::find($advertisement->coin_id);
+            switch ($advertisement->trade_type) {
+                case Advertisement::BUY:
+                    $userId = Auth::id();
+                    break;
+                case Advertisement::SELL:
+                    $userId = $advertisement->user_id;
+                    $balance = UserCoin::findUserCoin($advertisement->coin_id, $userId)->balance;
+                    $withdrawalFee = $coin->detail->withdrawal_fee;
+                    $openTrades = Trade::getOpenTradeBySellerId($advertisement->coin_id, $userId);
+                    $canSpendAmount = $balance - $withdrawalFee;
+                    foreach ($openTrades as $key => $openTrade) {
+                        $openTrade->amount = $openTrade->coin_original_value;
+                        $openTrade->setVisible([
+                            'id',
+                            'amount',
+                        ]);
+                        $canSpendAmount -= $openTrade->amount;
+                    }
+                    $pendingWithdrawals = WithdrawalRequest::getUnprocessedRequestByUser($advertisement->coin_id,
+                        $userId);
+                    foreach ($pendingWithdrawals as $key => $pendingWithdrawal) {
+                        $canSpendAmount -= $pendingWithdrawal->amount;
+                    }
+                    if ($trade->coin_original_value > $canSpendAmount) {
+                        return response()->api(false,
+                            ($userId == Auth::id() ? 'Your' : "Seller's") . " {$advertisement->coin_symbol} balance is not enough", null);
+                    }
+                    break;
+                default:
+                    return response()->api(false, 'No such ad type exist', null);
+                    break;
+            }
+
+            $fiatPrice = $trade->coin_original_value * $advertisement->coin_price * $advertisement->currency_rate;
+            $fiatPrice += $fiatPrice * ($trade->trade_margin_percentage / 100);
+            $trade->fiat_value = $fiatPrice;
+
+            $trade->commision_value = $trade->coin_original_value * ($trade->coin->detail->trade_fee_percentage / 100);
+            $trade->coin_value = $trade->coin_original_value - $trade->commision_value;
+            $trade->trade_status = Trade::OPEN;
+            $trade->started_at = now();
+            $trade->save();
+
+            TradeLog::createLog([
+                'user_id' => Auth::id(),
+                'trade_id' => $tradeId,
+                'description' => Auth::user()->username . " accepted request for trade #{$tradeId} for {$trade->coin_original_value} {$advertisement->coin_symbol} @ {$advertisement->currency_symbol} {$fiatPrice}",
+                'created_at' => now(),
+                'status' => TradeLog::ACTIVE,
+            ]);
+
+            $message = sprintf(
+                "%s accepted to %s %f %s",
+                Auth::user()->username,
+                ($advertisement->trade_type == Advertisement::BUY) ? "buy" : "sell",
+                $trade->coin_original_value,
+                $advertisement->coin_symbol
+            );
+
+            // $notifiable = ($advertisement->trade_type == Advertisement::BUY) ? User::find($trade->seller_id) : User::find($trade->buyer_id);
+            $notifiable = ($advertisement->user_id == $trade->buyer_id) ? User::find($trade->seller_id) : User::find($trade->buyer_id);
+            $notifiable->notify(new TradeRequestAccepted($tradeId, $message, (int)$advertisement->id));
+        }
+
+        Notification::markTradeAs((int)$tradeId, $request->answer ? 'accepted' : 'rejected');
+
+        $responseData = [
+            'is_accepted' => $request->answer,
+            'trade_id' => $tradeId
+        ];
+
+        return response()->api(true, 'Response stored successfully', $responseData);
+    }
+
+    public function verifyUsersInTrade($trade, $request)
+    {
+        if (true == empty($trade)) {
+            return response()->api(false, 'Trade Not Found', null);
+        }
+        if (false == $trade->isUserInvolved(Auth::user())) {
+            return response()->api(false, 'Trade Not Found.', null);
+        }
+    }
+
+    public function viewTrade($tradeId, Request $request)
+    {
+        // \Cache::get('userId'.$trade->seller_id.'LastSeen')->diffForHumans();
+        $trade = Trade::findTrade($tradeId);
+        if (true == empty($trade)) {
+            return response()->api(false, 'Trade Not Found', null);
+        }
+        if (false == $trade->isUserInvolved(Auth::user())) {
+            return response()->api(false, 'Trade Not Found.', null);
+        }
+
+        if ($trade->did_buyer_confirmed_payment == 0
+            && \Carbon\Carbon::parse($trade->started_at)->addMinutes($trade->advertisement->payment_window_minutes)->lessThan(now())) {
+
+            $trade->trade_status = Trade::CLOSED;
+            $trade->save();
+            abort(403);
+        }
+
+        if (Auth::id() == $trade->buyer_id) {
+            return response()->viewPage('home.trade.buyer', compact('trade'));
+        } else {
+            return response()->viewPage('home.trade.seller', compact('trade'));
+        }
+    }
+
+    public function getTrade($tradeId, Request $request)
+    {
+        // \Cache::get('userId'.$trade->seller_id.'LastSeen')->diffForHumans();
+        $trade = Trade::findTradeWithoutStatus($tradeId);
+        if (true == empty($trade)) {
+            return response()->api(false, 'Trade Not Found', null);
+        }
+        if (false == $trade->isUserInvolved(Auth::user())) {
+            return response()->api(false, 'Trade Not Found.', null);
+        }
+
+        if (true == ($trade->trade_status != Trade::OPEN)) {
+            return response()->api(false, $this->tradeStatusMessage($trade->trade_status), null);
+        }
+
+        if ($trade->did_buyer_confirmed_payment == 0
+            && \Carbon\Carbon::parse($trade->started_at)->addMinutes($trade->advertisement->payment_window_minutes)->lessThan(now())) {
+
+            $trade->trade_status = Trade::TIMED_OUT;
+            $trade->save();
+            Notification::markTradeAs((int)$tradeId, 'timed_out');
+            response()->json(['message' => 'Time expired'], 403);
+        }
+
+        $trade->trader_type = $trade->identifyTrader(Auth::user());
+        $trade->seconds_left = \Carbon\Carbon::parse($trade->started_at)->addMinutes($trade->advertisement->payment_window_minutes)->diffInSeconds(now());
+        $trade->currency_symbol = Currency::findById($trade->advertisement->currency_id)->symbol;
+        $trade->seller_username = User::findById($trade->seller_id)->username;
+        $trade->buyer_username = User::findById($trade->buyer_id)->username;
+        $trade->coin_symbol = $trade->coin->symbol;
+        $chatMessages = [];
+        $chat = ChatMessage::getChatByTradeId(0, 10, (int)$tradeId);
+        foreach ($chat as $key => $chatObj) {
+            $content = $chatObj->content;
+            if ($chatObj->type == ChatMessage::TYPE_DOC) {
+                $content = ['file_name' => $content['file_name']];
+            }
+            array_push($chatMessages, [
+                'id' => $chatObj->id,
+                'content' => $content,
+                'is_owner' => $chatObj->user_id == Auth::id() ? 1 : 0,
+                'type' => $chatObj->type,
+                'created_at' => $chatObj->created_at,
+                'recipient_read_at' => $chatObj->recipient_read_at,
+                'read_at' => $chatObj->read_at,
+            ]);
+        }
+        $trade->chat_messages = $chatMessages;
+        $trade->payment_method = $trade->advertisement->payment_method;
+        $trade->setVisible([
+            'seller_username',
+            'buyer_username',
+            'currency_symbol',
+            'trader_type',
+            'seconds_left',
+            'fiat_value',
+            'chat_messages',
+            'payment_method',
+            'did_buyer_confirmed_payment',
+            'did_buyer_received_coins',
+            'did_seller_received_payment',
+            'did_seller_released_coins',
+            'is_seller_trusted',
+            'coin_symbol'
+        ]);
+
+        return response()->api(true, 'success', $trade);
+    }
+
+    public function getTradeMessages($tradeId, Request $request)
+    {
+        $trade = Trade::findTradeWithoutStatus($tradeId);
+        if (true == empty($trade)) {
+            return response()->api(false, 'Trade Not Found', null);
+        }
+        if (false == $trade->isUserInvolved(Auth::user())) {
+            return response()->api(false, 'Trade Not Found.', null);
+        }
+
+        if (true == ($trade->trade_status != Trade::OPEN)) {
+            return response()->api(false, $this->tradeStatusMessage($trade->trade_status), null);
+        }
+
+        $chatMessages = [];
+        $chat = ChatMessage::getChatByTradeId((int)$request->offset ?? 0, (int)$request->limit ?? 10, (int)$tradeId);
+        foreach ($chat as $key => $chatObj) {
+            $content = $chatObj->content;
+            if ($chatObj->type == ChatMessage::TYPE_DOC) {
+                $content = ['file_name' => $content['file_name']];
+            }
+            array_push($chatMessages, [
+                'id' => $chatObj->id,
+                'content' => $content,
+                'is_owner' => $chatObj->user_id == Auth::id() ? 1 : 0,
+                'type' => $chatObj->type,
+                'created_at' => $chatObj->created_at,
+                'recipient_read_at' => $chatObj->recipient_read_at,
+                'read_at' => $chatObj->read_at,
+            ]);
+        }
+
+        return response()->api(true, 'success', $chatMessages);
+    }
+
+    public function sendTradeMessage($tradeId, Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'content' => 'required',
+            'type' => [
+                'required',
+                Rule::in([
+                    ChatMessage::TYPE_TEXT,
+                    ChatMessage::TYPE_IMAGE,
+                    ChatMessage::TYPE_DOC,
+                ]),
+            ],
+        ]);
+        if ($validator->fails()) {
+            return response()->api(false, implode(', ', $validator->errors()->all()), null);
+        }
+
+        $trade = Trade::findTradeWithoutStatus($tradeId);
+        if (true == empty($trade)) {
+            return response()->api(false, 'Trade Not Found', null);
+        }
+        if (false == $trade->isUserInvolved(Auth::user())) {
+            return response()->api(false, 'Trade Not Found.', null);
+        }
+
+        if (true == ($trade->trade_status != Trade::OPEN)) {
+            return response()->api(false, $this->tradeStatusMessage($trade->trade_status), null);
+        }
+
+        switch ($request->type) {
+            case ChatMessage::TYPE_TEXT:
+                $content = trim($request->content);
+                break;
+            case ChatMessage::TYPE_IMAGE:
+                $content = $request->content;
+                $image_type = substr($content, 5, strpos($content, ';') - 5);
+                $allowedImageType = [
+                    'image/jpeg',
+                    'image/jpg',
+                    'image/JPG',
+                    'image/JPEG',
+                    'image/png',
+                    'image/PNG',
+                ];
+
+                if (false == in_array($image_type, $allowedImageType)) {
+                    return response()->api(false, 'image is invalid', null);
+                }
+                $image = Image::make($content);
+                $watermark = Image::make(public_path('/images/faster.png'));
+                $image->insert($watermark, 'bottom-right', 10, 10);
+                $content = (string)$image->encode('data-url');
+
+                break;
+            case ChatMessage::TYPE_DOC:
+                # code...
+                // $content = base64_decode(substr($request->content, 28));
+                if (true == empty($request->content['data'])
+                    || true == empty($request->content['file_name']
+                        || substr($request->content['data'], 0, 28) != 'data:application/pdf;base64,')) {
+                    return response()->api(false, 'pdf is invalid', null);
+                }
+                $fileName = mt_rand() . '_og.pdf';
+                $destName = mt_rand() . '_dest.pdf';
+                $filePath = storage_path("app/{$fileName}");
+                $destPath = storage_path("app/{$destName}");
+                Storage::put($fileName, base64_decode(substr($request->content['data'], 28)));
+
+                $filepdf = fopen($filePath, "r");
+                if ($filepdf) {
+                    $line_first = fgets($filepdf);
+                    fclose($filepdf);
+                } else {
+                    return response()->api(false, 'Error opening file', null);
+                }
+                // extract number such as 1.4 ,1.5 from first read line of pdf file
+                preg_match_all('!\d+!', $line_first, $matches);
+                // save that number in a variable
+                $pdfversion = implode('.', $matches[0]);
+                $convertedName = null;
+                if ($pdfversion > "1.4") {
+                    $convertedName = mt_rand() . '_conv.pdf';
+                    $convertedPath = storage_path("app/{$convertedName}");
+                    $command = 'gs -dBATCH -dCompatibilityLevel=1.5 -dQUIET -dNOPAUSE -q -sDEVICE=pdfwrite -sOutputFile="' . $convertedPath . '" "' . $filePath . '"';
+                    $exe = shell_exec($command);
+                }
+
+                $pdf = new \setasign\Fpdi\Fpdi();
+                $pageCount = $pdf->setSourceFile($convertedPath ?? $filePath);
+                // dump($pageCount);
+                for ($i = 1; $i <= $pageCount; $i++) {
+                    $pdf->AddPage();
+                    $tplIdx = $pdf->importPage($i);
+                    // dump($tplIdx);
+                    $pdf->useTemplate($tplIdx);
+
+                    $pdf->Image(public_path('images/faster.png'), 10, 10, -300);
+                }
+
+                $pdf->Output('F', $destPath);
+
+                $content = [
+                    'data' => 'data:application/pdf;base64,' . base64_encode(file_get_contents($destPath)),
+                    'file_name' => $request->content['file_name'],
+                ];
+                Storage::delete([$fileName, $destName]);
+                if ($convertedName != null) {
+                    Storage::delete($convertedPath);
+                }
+                break;
+        }
+        $recipientId = $trade->identifyTrader(Auth::user()) == Trade::BUYER ? $trade->seller_id : $trade->buyer_id;
+        $chatMessageId = ChatMessage::createChatMessage([
+            'user_id' => Auth::id(),
+            'trade_id' => (int)$tradeId,
+            'type' => $request->type,
+            'content' => $content,
+            'recipient_id' => $recipientId,
+            'recipient_read_at' => null,
+            'created_at' => now()->toDateTimeString(),
+            'status' => ChatMessage::ACTIVE,
+        ]);
+        // dd($recipientId);
+        broadcast(new TradeChatMessage($recipientId, $tradeId, $request->type, $content, $chatMessageId))->toOthers();
+
+        return response()->api(true, 'Successfully stored message and sent response', $chatMessageId);
+    }
+
+    public function downloadChatMessagePdf($tradeId, Request $request)
+    {
+        $trade = Trade::findTradeWithoutStatus($tradeId);
+        if (true == empty($trade)) {
+            return response()->api(false, 'Trade Not Found', null);
+        }
+
+
+        if (true == ($trade->trade_status != Trade::OPEN)) {
+            return response()->api(false, $this->tradeStatusMessage($trade->trade_status), null);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'chat_message_id' => 'required',
+        ]);
+
+        $message = ChatMessage::find($request->chat_message_id);
+        if (true == empty($message) || $message->type != ChatMessage::TYPE_DOC) {
+            return response()->api(false, 'message not found', null);
+        }
+
+        return response()->streamDownload(function () use ($message) {
+            echo base64_decode(substr($message->content['data'], 28));
+        }, $message->content['file_name']);
+    }
+
+    public function markChatMessageRead($tradeId, Request $request)
+    {
+        $trade = Trade::findTradeWithoutStatus($tradeId);
+        if (true == empty($trade)) {
+            return response()->api(false, 'Trade Not Found', null);
+        }
+        if (false == $trade->isUserInvolved(Auth::user())) {
+            return response()->api(false, 'Trade Not Found.', null);
+        }
+
+        if (true == ($trade->trade_status != Trade::OPEN)) {
+            return response()->api(false, $this->tradeStatusMessage($trade->trade_status), null);
+        }
+        $recipientId = $trade->identifyTrader(Auth::user()) == Trade::BUYER ? $trade->seller_id : $trade->buyer_id;
+        $recipient_read_at = now()->toDateTimeString();
+
+        $markMessageRead = ChatMessage::updateMessageStatusAsRead((int)$tradeId, (int)$recipientId, (int)Auth::id(),
+            $recipient_read_at);
+
+        broadcast(new RecipientReadMessage($recipientId, $tradeId, now()->toDateTimeString()))->toOthers();
+
+        return response()->api(true, 'Marked all unread messages as Read', array('read_at' => $recipient_read_at));
+
+    }
+
+    public function confirmPaymentByBuyer($tradeId, Request $request)
+    {
+        $trade = Trade::findTradeWithoutStatus($tradeId);
+        if (true == empty($trade)) {
+            return response()->api(false, 'Trade Not Found', null);
+        }
+        if (false == $trade->isUserInvolved(Auth::user())) {
+            return response()->api(false, 'Trade Not Found.', null);
+        }
+
+        if (true == ($trade->trade_status != Trade::OPEN)) {
+            return response()->api(false, $this->tradeStatusMessage($trade->trade_status), null);
+        }
+
+        broadcast(new BuyerConfirmedPayment($tradeId))->toOthers();
+
+        $trade->did_buyer_confirmed_payment = 1;
+        $trade->save();
+
+        TradeLog::createLog([
+            'user_id' => Auth::id(),
+            'trade_id' => $tradeId,
+            'description' => "Buyer " . Auth::user()->username . " confirmed payment for trade #{$tradeId}",
+            'created_at' => now(),
+            'status' => TradeLog::ACTIVE,
+        ]);
+
+        return response()->api(true, 'Buyer successfully confirmed payment', null);
+    }
+
+    public function paymentRecievedBySeller($tradeId, Request $request)
+    {
+        $trade = Trade::findTradeWithoutStatus($tradeId);
+        if (true == empty($trade)) {
+            return response()->api(false, 'Trade Not Found', null);
+        }
+        if (false == $trade->isUserInvolved(Auth::user())) {
+            return response()->api(false, 'Trade Not Found.', null);
+        }
+
+        if (true == ($trade->trade_status != Trade::OPEN)) {
+            return response()->api(false, $this->tradeStatusMessage($trade->trade_status), null);
+        }
+        if ($trade->did_buyer_confirmed_payment == 0) {
+            return response()->api(false, 'Buyer hasn\'t confirmed payment', null);
+        }
+
+        $trade->did_seller_received_payment = 1;
+        $trade->save();
+
+        TradeLog::createLog([
+            'user_id' => Auth::id(),
+            'trade_id' => $tradeId,
+            'description' => "Seller " . Auth::user()->username . " recieved payment for trade #{$tradeId}",
+            'created_at' => now(),
+            'status' => TradeLog::ACTIVE,
+        ]);
+
+        return response()->api(true, 'Seller has released the payment', null);
+    }
+
+    public function releaseCoinBySeller($tradeId, Request $request)
+    {
+        $trade = Trade::findTradeWithoutStatus($tradeId);
+        if (true == empty($trade)) {
+            return response()->api(false, 'Trade Not Found', null);
+        }
+        if (false == $trade->isUserInvolved(Auth::user())) {
+            return response()->api(false, 'Trade Not Found.', null);
+        }
+
+        if (true == ($trade->trade_status != Trade::OPEN)) {
+            return response()->api(false, $this->tradeStatusMessage($trade->trade_status), null);
+        }
+        if ($trade->did_buyer_confirmed_payment == 0) {
+            return response()->api(false, 'Buyer hasn\'t confirmed payment', null);
+        }
+        if ($trade->did_seller_received_payment == 0) {
+            return response()->api(false, 'Seller hasn\'t recieved payment', null);
+        }
+
+        //buyer
+        $buyerTransactionId = Transaction::createTransaction([
+            'user_id' => $trade->buyer_id,
+            'coin_id' => $trade->coin_id,
+            'amount' => $trade->coin_value,
+            'public_address_id' => null,
+            'tx_id' => null,
+            'v_out' => null,
+            'trade_id' => $tradeId,
+            'type' => Transaction::TRADE,
+            'fees' => $trade->commision_value,
+            'is_transacted' => 1,
+            'is_stored' => 0,
+            'created_at' => now(),
+            'updated_at' => now(),
+            'status' => Transaction::ACTIVE,
+        ]);
+        $buyerBalance = Transaction::getBalance($trade->coin_id, $trade->buyer_id);
+        UserCoin::updateBalanceAndVolume($trade->coin_id, $trade->buyer_id, $buyerBalance, $trade->coin_value);
+
+        //seller
+        $sellerTransactionId = Transaction::createTransaction([
+            'user_id' => $trade->seller_id,
+            'coin_id' => $trade->coin_id,
+            'amount' => -$trade->coin_original_value,
+            'public_address_id' => null,
+            'tx_id' => null,
+            'v_out' => null,
+            'trade_id' => $tradeId,
+            'type' => Transaction::TRADE,
+            'fees' => 0,
+            'is_transacted' => 1,
+            'is_stored' => 0,
+            'created_at' => now(),
+            'updated_at' => now(),
+            'status' => Transaction::ACTIVE,
+        ]);
+        $sellerBalance = Transaction::getBalance($trade->coin_id, $trade->seller_id);
+        UserCoin::updateBalanceAndVolume($trade->coin_id, $trade->seller_id, $sellerBalance,
+            $trade->coin_original_value);
+
+        TransactionLog::insert([
+            [
+                'user_id' => $trade->buyer_id,
+                'transaction_id' => $buyerTransactionId,
+                'description' => "{$trade->coin_value} {$trade->coin->symbol} is bought by " . User::find($trade->buyer_id)->username . " under trade  #{$tradeId}",
+                'created_at' => now(),
+                'status' => TransactionLog::ACTIVE,
+            ],
+            [
+                'user_id' => $trade->seller_id,
+                'transaction_id' => $sellerTransactionId,
+                'description' => "{$trade->coin_original_value} {$trade->coin->symbol} is sold by " . User::find($trade->seller_id)->username . " under trade #{$tradeId}",
+                'created_at' => now(),
+                'status' => TransactionLog::ACTIVE,
+            ],
+        ]);
+
+        broadcast(new BalanceUpdate($trade->buyer_id, $trade->coin->symbol, $buyerBalance));
+        broadcast(new BalanceUpdate($trade->seller_id, $trade->coin->symbol, $sellerBalance));
+        broadcast(new SellerReleasedCoin($tradeId))->toOthers();
+
+        $trade->did_seller_released_coins = 1;
+        $trade->save();
+
+        TradeLog::createLog([
+            'user_id' => Auth::id(),
+            'trade_id' => $tradeId,
+            'description' => "Seller " . Auth::user()->username . " released coins for trade #{$tradeId}",
+            'created_at' => now(),
+            'status' => TradeLog::ACTIVE,
+        ]);
+
+        return response()->api(true, 'Seller has released the coin', null);
+    }
+
+    public function coinRecievedByBuyer($tradeId, Request $request)
+    {
+        $trade = Trade::findTradeWithoutStatus($tradeId);
+        if (true == empty($trade)) {
+            return response()->api(false, 'Trade Not Found', null);
+        }
+        if (false == $trade->isUserInvolved(Auth::user())) {
+            return response()->api(false, 'Trade Not Found.', null);
+        }
+
+        if (true == ($trade->trade_status != Trade::OPEN)) {
+            return response()->api(false, $this->tradeStatusMessage($trade->trade_status), null);
+        }
+
+        if ($trade->did_buyer_confirmed_payment == 0) {
+            return response()->api(false, 'Buyer hasn\'t confirmed payment', null);
+        } elseif ($trade->did_seller_released_coins == 0) {
+            return response()->api(false, 'Seller hasn\'t released coins', null);
+        }
+
+        broadcast(new BuyerRecievedCoin($tradeId))->toOthers();
+
+        $trade->did_buyer_received_coins = 1;
+        $trade->is_seller_trusted = $request->is_seller_trusted ?? 0;
+        $trade->trade_status = Trade::CLOSED;
+        $trade->save();
+
+        TradeLog::createLog([
+            'user_id' => Auth::id(),
+            'trade_id' => $tradeId,
+            'description' => "Buyer " . Auth::user()->username . " recieved coins for trade #{$tradeId}",
+            'created_at' => now(),
+            'status' => TradeLog::ACTIVE,
+        ]);
+
+        Notification::markTradeAs((int)$tradeId, 'completed');
+
+        $sellerCoins = UserCoin::findUserCoin($request->coin_id, $trade->seller_id);
+        $sellerCompletedTradeCount = $sellerCoins->completed_trade_count + 1;
+        $sellerCoins->completed_trade_count = $sellerCompletedTradeCount;
+        $sellerCoins->save();
+
+        $buyerCoins = UserCoin::findUserCoin($request->coin_id, $trade->buyer_id);
+        $buyerCompletedTradeCount = $buyerCoins->completed_trade_count + 1;
+        $buyerCoins->completed_trade_count = $buyerCompletedTradeCount;
+        $buyerCoins->save();
+
+        $responseData = [
+            'trade_id' => $tradeId,
+            'coin_original_value' => $trade->coin_original_value,
+            'advertisement_id' => $trade->advertisement_id
+        ];
+
+        return response()->api(true, 'Trade is success', $responseData);
+    }
+
+    public function cancelTrade($tradeId, Request $request)
+    {
+        $trade = Trade::findTradeWithoutStatus($tradeId);
+        if (true == empty($trade)) {
+            return response()->api(false, 'Trade Not Found', null);
+        }
+        if (false == $trade->isUserInvolved(Auth::user())) {
+            return response()->api(false, 'Trade Not Found.', null);
+        }
+
+        if (true == ($trade->trade_status != Trade::OPEN)) {
+            return response()->api(false, $this->tradeStatusMessage($trade->trade_status), null);
+        }
+        if ($trade->did_buyer_confirmed_payment == 1) {
+            return response()->api(false, 'Buyer has confirmed payment', null);
+        }
+
+        broadcast(new TradeCancelled($tradeId))->toOthers();
+
+        $trade->trade_status = Trade::CANCELLED;
+        $trade->save();
+
+        TradeLog::createLog([
+            'user_id' => Auth::id(),
+            'trade_id' => $tradeId,
+            'description' => "{$trade->identifyTrader(Auth::user())} " . Auth::user()->username . " cancelled trade #{$tradeId}",
+            'created_at' => now(),
+            'status' => TradeLog::ACTIVE,
+        ]);
+
+        Notification::markTradeAs((int)$tradeId, 'cancelled');
+
+
+        //trade cancelled by:
+        if (Auth::user()->id == $trade->seller_id) {
+            $sellerCoins = UserCoin::findUserCoin($request->coin_id, $trade->seller_id);
+            $sellerCancelledTradeCount = $sellerCoins->cancelled_trade_count + 1;
+            $sellerCoins->cancelled_trade_count = $sellerCancelledTradeCount;
+            $sellerCoins->save();
+        }
+
+        if (Auth::user()->id == $trade->buyer_id) {
+            $buyerCoins = UserCoin::findUserCoin($request->coin_id, $trade->buyer_id);
+            $buyerCancelledTradeCount = $buyerCoins->cancelled_trade_count + 1;
+            $buyerCoins->cancelled_trade_count = $buyerCancelledTradeCount;
+            $buyerCoins->save();
+        }
+
+        $trade->trade_cancelled_by = Auth::user()->id;
+        $trade->save();
+
+
+        $responseData = [
+            'trade_id' => $tradeId,
+            'coin_original_value' => $trade->coin_original_value,
+            'advertisement_id' => $trade->advertisement_id
+        ];
+        return response()->api(true, 'Trade is cancelled successfully', $responseData);
+    }
+
+    public function disputeCalled($tradeId, Request $request)
+    {
+        $trade = Trade::findTradeWithoutStatus($tradeId);
+        if (true == empty($trade)) {
+            return response()->api(false, 'Trade Not Found', null);
+        }
+        if (false == $trade->isUserInvolved(Auth::user())) {
+            return response()->api(false, 'Trade Not Found.', null);
+        }
+
+        if (true == ($trade->trade_status != Trade::OPEN)) {
+            return response()->api(false, $this->tradeStatusMessage($trade->trade_status), null);
+        }
+
+        /*
+         * Assign an available cs to dispute
+         */
+        $cs = Admin::findAvailableCS();
+
+        if ($cs == null) {
+            return response()->api(false, 'No Support executive found !!', null);
+        }
+        Dispute::createDispute(array(
+            'dispute_reason_id' => $request->dispute_reason_id,
+            'trade_id' => $tradeId,
+            'user_id' => Auth::user()->id,
+            'user_type' => Dispute::BUYER,
+            'admin_id' => $cs->id,
+            'dispute_status' => Dispute::ACTIVE_DISPUTE,
+        ));
+
+        broadcast(new DisputeRaised($tradeId));
+
+        /*$message = sprintf(
+        "Buyer has raised a dispute against you for Trade ID: %u",
+        $tradeId
+        );
+
+        $notifiable = Admin::findById($cs);
+        $notifiable->notify(new BuyerCalledDispute($tradeId, $message));*/
+
+        $trade->trade_status = Trade::DISPUTE_OPEN;
+        $trade->is_in_dispute = 1;
+        $trade->save();
+
+        Notification::markTradeAs((int)$tradeId,'dispute_open');
+
+        TradeLog::createLog([
+            'user_id' => Auth::id(),
+            'trade_id' => $tradeId,
+            'description' => "Buyer " . Auth::user()->username . " raised dispute for trade #{$tradeId}",
+            'created_at' => now(),
+            'status' => TradeLog::ACTIVE,
+        ]);
+        $responseData = [
+            'trade_id' => $tradeId,
+        ];
+        return response()->api(true, 'Dispute was stored successfully', $responseData);
+    }
+
+    public function viewDoTrade()
+    {
+
+        return view('trade_raw', ['users' => $this->users]);
+    }
+
+    public function rawTrade(Request $request)
+    {
+        return $this->handleBTCTrade($request);
+    }
+
+    public function handleBTCTrade(Request $request)
+    {
+        $sender = $this->users[$request->sender];
+        $receiver = $this->users[$request->reciever];
+
+        $senderUTXOsJson = json_decode(file_get_contents("https://testnet-api.smartbit.com.au/v1/blockchain/address/{$sender['public']}/unspent"),
+            true);
+        $senderUTXOsJson = collect($senderUTXOsJson['unspent']);
+        $inputs = [];
+        $totalBalance = 0;
+
+        foreach ($senderUTXOsJson->sortByDesc('value_int') as $key => $senderUTXOsj) {
+            if ($senderUTXOsj['confirmations'] < 6) {
+                continue;
+            }
+            if ($totalBalance > $request->transfer_amount) {
+                break;
+            }
+            $inputs[] = [
+                'tx_id' => $senderUTXOsj['txid'],
+                'v_out' => $senderUTXOsj['n'],
+            ];
+            $totalBalance += $senderUTXOsj['value_int'];
+        }
+
+        $inputs = [
+            [
+                'tx_id' => '6aa4acc5350e7dbbe5e9e42ffcddd0c78ab9ceeee6bb8d8311f99b0de2049f84',
+                'v_out' => 1,
+            ],
+        ];
+        $totalBalance = 1000000000;
+        $BTCTrade = new BTCTradeHandler();
+        $balance = $totalBalance - $BTCTrade->miningFee;
+
+        $outputs = [
+            [
+                'amount' => $request->transfer_amount,
+                'public_key' => $receiver['public'],
+            ],
+            [
+                'amount' => $balance - $request->transfer_amount,
+                'public_key' => $sender['public'],
+            ],
+        ];
+        // dd($outputs, $inputs, $totalBalance, $balance, $BTCTrade, $BTCTrade->miningFee);
+        $output = $BTCTrade->initialize($inputs, $outputs)
+            ->createTransaction()
+            ->signTransaction($sender['private']);
+        // ->broadcastTransaction();
+        dd($output->transaction->getHex());
+    }
+
+    public function rawTradeOld(Request $request)
+    {
+
+        $senderUTXOs = [];
+        $sender = $this->users[$request->sender];
+        $receiver = $this->users[$request->reciever];
+        // dump($request->sender, $request->reciever);
+        $totalBalance = 0;
+        $senderUTXOsJson = json_decode(file_get_contents("https://testnet-api.smartbit.com.au/v1/blockchain/address/{$sender['public']}/unspent"),
+            true);
+        $senderUTXOsJson = collect($senderUTXOsJson['unspent']);
+        // dd($senderUTXOsJson);
+        foreach ($senderUTXOsJson->sortByDesc('value_int') as $key => $senderUTXOsj) {
+            if ($totalBalance > $request->transfer_amount) {
+                break;
+            }
+            $senderUTXOs[] = [
+                'id' => $senderUTXOsj['txid'],
+                'v_out' => $senderUTXOsj['n'],
+            ];
+            $totalBalance += $senderUTXOsj['value_int'];
+        }
+
+        // dd($senderUTXOs);
+
+        $miningCost = 5000;
+
+        // $totalBalance = 6196000;
+        $balance = $totalBalance - 5000;
+        // dd($totalBalance, $balance);
+        $transferAmount = $request->transfer_amount;
+        // dd($totalBalance, $balance, $transferAmount, $balance-$transferAmount);
+
+        $ecAdapter = Bitcoin::getEcAdapter();
+        Bitcoin::setNetwork(NetworkFactory::bitcoinTestnet());
+        $addrCreator = new AddressCreator();
+        $ec = \BitWasp\Bitcoin\Bitcoin::getEcAdapter();
+        $privateKey = PrivateKeyFactory::fromWif($sender['private'], null, NetworkFactory::bitcoinTestnet());
+        $outputScript = ScriptFactory::scriptPubKey()->payToPubKeyHash($privateKey->getPubKeyHash());
+        $txOut = new TransactionOutput($totalBalance + 5000, $outputScript);
+        $transaction = TransactionFactory::build();
+
+        foreach ($senderUTXOs as $key => $senderUTXO) {
+            $outpoint = new OutPoint(Buffer::hex($senderUTXO['id']), $senderUTXO['v_out']);
+            $transaction->spendOutPoint($outpoint);
+        }
+        $transaction->payToAddress($transferAmount, $addrCreator->fromString($receiver['public']));
+        $transaction->payToAddress($balance - $transferAmount, $addrCreator->fromString($sender['public']));
+        // dump($receiver['public'], $sender['public']);
+        // dd($transaction->get());
+        $signed = (new Signer($transaction->get(), $ec));
+
+        foreach ($senderUTXOs as $key => $senderUTXO) {
+            $signed->sign($key, $privateKey, $txOut);
+        }
+
+        // dd($signed);
+        // return response()
+        // ->json(['hex' => $signed->get()->getHex()]);
+
+        $client = new \GuzzleHttp\Client();
+
+        $response = $client->request('POST', 'https://testnet-api.smartbit.com.au/v1/blockchain/pushtx',
+            ['json' => ['hex' => $signed->get()->getHex()]]);
+        // dd($response);
+        // return $response->getBody();
+        // return response()
+        // ->json(json_decode($response->getBody(), true));
+
+    }
+
+    public function markTradeTrusted($tradeId, Request $request)
+    {
+        $coinId = $request->coin_id;
+        $userId = Auth::user()->id;
+        //check if trade is completed
+        $trade = Trade::findClosedTradeByIdByUserId($tradeId, $userId);
+        if (false == $trade) {
+            return response()->api(false, 'Trade was not found', null);
+        }
+        //check if user already marked trade as trusted
+        $userCoin = UserCoin::findUserCoin($coinId, $userId);
+        $trusted_trade_count = $userCoin->trusted_trade_count;
+
+        if ($trade->seller_id == $userId) {
+            if ($trade->is_buyer_trusted == Trade::TRUSTED) {
+                return response()->api(false, 'You have already made this trade as trusted', null);
+            } else {
+                $trade->is_buyer_trusted = 1;
+                $trade->save();
+                $userCoin->trusted_trade_count = $trusted_trade_count + 1;
+                $userCoin->save();
+                return response()->api(true, 'Buyer marked as trusted for this trade', $userCoin->trusted_trade_count);
+            }
+        }
+
+        if ($trade->buyer_id == $userId) {
+            if ($trade->is_seller_trusted == Trade::TRUSTED) {
+                return response()->api(false, 'You have already made this trade as trusted', null);
+            } else {
+                $trade->is_seller_trusted = 1;
+                $trade->save();
+                $userCoin->trusted_trade_count = $trusted_trade_count + 1;
+                $userCoin->save();
+                return response()->api(true, 'Seller marked as trusted for this trade', $userCoin->trusted_trade_count);
+            }
+        }
+    }
+
+    public function getDisputeReasons($tradeId)
+    {
+        $trade = Trade::findTradeWithoutStatus($tradeId);
+        if (true == empty($trade)) {
+            return response()->api(false, 'Trade Not Found', null);
+        }
+        if (false == $trade->isUserInvolved(Auth::user())) {
+            return response()->api(false, 'Trade Not Found.', null);
+        }
+
+        if (true == ($trade->trade_status != Trade::OPEN)) {
+            return response()->api(false, $this->tradeStatusMessage($trade->trade_status), null);
+        }
+
+        $userId = Auth::user()->id;
+
+        if ($trade->seller_id == $userId) {
+            $type = DisputeReason::FOR_SELLER;
+        } else {
+            $type = DisputeReason::FOR_BUYER;
+        }
+
+        $reasons = DisputeReason::getDisputeReason($type);
+        if (true == empty($reasons)) {
+            return response()->api(false, 'Reasons not Available', null);
+        }
+        $data = [];
+        foreach ($reasons as $reason) {
+            $data[] = [
+                'dispute_reason_id' => $reason->id,
+                'reason' => $reason->reason
+            ];
+        }
+        return response()->api(true, 'Dispute Reasons fetched successfully', $data);
+    }
+
+    private function tradeStatusMessage($status)
+    {
+        switch ($status) {
+            case Trade::PENDING:
+                return "Trade is Pending";
+                break;
+            case Trade::CLOSED:
+                return "Trade is Closed";
+                break;
+            case Trade::REJECTED:
+                return "Trade is Rejected";
+                break;
+            case Trade::CANCELLED:
+                return "Trade is Cancelled";
+                break;
+            case Trade::TIMED_OUT:
+                return "Trade timed-out";
+                break;
+            case Trade::DISPUTE_OPEN:
+                return "A dispute is open for this Trade";
+                break;
+            case Trade::DISPUTE_CLOSED:
+                return "Trade was in dispute but it is closed now";
+                break;
+            default:
+                return "Trade Status Not Defined";
+                break;
+        }
+    }
+}
+

@@ -1,0 +1,186 @@
+<?php
+
+namespace App\Http\Controllers\Home;
+
+use App\Mail\EmailSubscriptionVerify;
+use Illuminate\Http\Request;
+use App\Http\Controllers\Controller;
+use App\Models\NewsletterEmail;
+use App\Models\User;
+use Auth;
+use Validator;
+use Illuminate\Support\Facades\Mail;
+
+class NewsletterController extends Controller
+{
+    /**
+     * Function used to request for newsletter subscription.
+     *
+     * There two types of users:
+     *
+     * 1- Logged-in user
+     *
+     * 2- Outside user
+     *
+     * For Logged-in user:
+     *
+     * - Email is not required
+     *
+     * - Check if user has already requested
+     *
+     * - If not, then create an entry in `newsletter_email` table
+     *
+     * For Outside user:
+     *
+     * - Check if user has already requested
+     *
+     * - If not, It is possible that if an outsider requests, he may be a registered user too
+     * hence when he provides his email id then code checks if he already have requested, while he was logged in.
+     *
+     *
+     * Mail is sent to user after successful request
+     *
+     * @param Request $request
+     * @return mixed
+     * @throws \Exception
+     */
+    public function requestToSubscribe(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'email' => 'sometimes|required',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->api(false, implode(', ', $validator->errors()->all()), null);
+        }
+
+        $data = [];
+        $data['email_id'] = $data['user_id'] = null;
+        if (auth('api')->user() === null) {
+            $emailId = $request->email;
+
+            if (true == NewsletterEmail::findByEmailId($emailId)) {
+                return response()->api(false, 'You have already requested, please check your mail to verify', null);
+            }
+            $userCheck = User::findByEmail($emailId);
+            if (true == $userCheck) {
+                if (true == NewsletterEmail::findByUserId($userCheck->id)) {
+                    return response()->api(false, 'You have already requested, please check your mail to verify', null);
+                }
+            }
+
+            $data['email_id'] = $emailId;
+        } else {
+            $userId = auth('api')->user()->id;
+            $emailId = auth('api')->user()->email;
+            if (true == NewsletterEmail::findByUserId($userId)) {
+                return response()->api(false, 'You have already requested, please check your mail to verify', null);
+            }
+            $data['user_id'] = $userId;
+        }
+        $data['subscribing_address'] = $subscribing_address = $this->generateUniqueSubscribingAddress();
+
+
+        if (false == NewsletterEmail::createSubscription($data)) {
+            return response()->api(false, 'Unable to create subscription right now', null);
+        }
+
+        $message = "Dear User.\n";
+        $message .= "We have received your request to receive our newsletter \n";
+        $message .= "Kindly verify by clicking below button.\n";
+
+        Mail::to($emailId)->queue(new EmailSubscriptionVerify($message, $subscribing_address));
+
+        return response()->api(true, 'Subscription Request Submitted Successfully, Please check your mail', null);
+
+
+    }
+
+    /**
+     * Used to generate Unique Subscribing Address
+     * @return string
+     * @throws \Exception
+     */
+    private function generateUniqueSubscribingAddress()
+    {
+        $address = generateRandomString(30);
+        $subscriber = NewsletterEmail::findBySubscribingAddress($address);
+        if (false == $subscriber) {
+            return $address;
+        } else {
+            return $this->generateUniqueSubscribingAddress();
+        }
+    }
+
+    /**
+     * Used to verify subscribing address after user request to receive newsletters
+     *
+     * @param Request $request
+     * @return mixed
+     */
+    public function verifySubscriptionAddress(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'address' => 'required',
+        ]);
+        if ($validator->fails()) {
+            return response()->api(false, implode(', ', $validator->errors()->all()), null);
+        }
+
+        $subscribing_address = $request->address;
+
+        $subscriber = NewsletterEmail::findBySubscribingAddress($subscribing_address);
+
+        if (false == $subscriber) {
+            return response()->api(false, 'Subscription request not found', null);
+        }
+
+        if ($subscriber->is_verified == NewsletterEmail::VERIFIED) {
+            return response()->api(true, 'Subscription already verified', null);
+        }
+
+        $subscriber->is_verified = NewsletterEmail::VERIFIED;
+        $subscriber->newsletter_status = NewsletterEmail::SUBSCRIBED;
+        $subscriber->save();
+
+        return response()->api(true, 'Subscription verified successfully', null);
+    }
+
+    /**
+     * Used to unsubscribe a user from newsletter.
+     *
+     * - `newsletter_status = UNSUBSCRIBED`
+     *
+     * - `status = INACTIVE`
+     *
+     * - Next time if same user want to subscribe,
+     * then he has to follow the same process of requesting, verification etc.
+     *
+     * @param Request $request
+     * @return mixed
+     */
+    public function unsubscribe(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'hash' => 'required',
+        ]);
+        if ($validator->fails()) {
+            return response()->api(false, implode(', ', $validator->errors()->all()), null);
+        }
+
+        $newsLetterEmailId = $this->decodeHash($request->hash);
+
+        $subscriber = NewsletterEmail::findById($newsLetterEmailId);
+        if (false == $subscriber) {
+            return response()->api(false, 'No subscription found', null);
+        }
+        $subscriber->newsletter_status = NewsletterEmail::UNSUBSCRIBED;
+        $subscriber->status = NewsletterEmail::INACTIVE;
+        $subscriber->save();
+
+        return response()->api(false, 'Unsubscribed successfully', null);
+    }
+
+
+}
+

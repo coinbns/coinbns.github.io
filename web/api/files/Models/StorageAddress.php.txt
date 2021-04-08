@@ -1,0 +1,112 @@
+<?php
+
+namespace App\Models;
+
+use App\Models\Model;
+
+class StorageAddress extends Model
+{
+    //mode
+    const UN_USED = 0;
+    const TO_BE_CONFIRMED = 1;
+    const CAN_USE = 2;
+    const USED = 3;
+
+    /*Create Queries Start*/
+    public static function createBatch($data)
+    {
+        return self::insert($data);
+    }
+    /*Create Queries End*/
+
+    /*Find Queries Start*/
+    public static function findUnusedAddress($coinId)
+    {
+        return self::where('mode', self::UN_USED)
+            ->active()
+            ->where('coin_id', $coinId)
+            ->first();
+    }
+
+    public static function findCanUseAddressPlain($coinId)
+    {
+        return self::where('mode', self::CAN_USE)
+            ->active()
+            ->where('coin_id', $coinId)
+            ->first();
+    }
+
+    public static function findToBeConfirmedAddressByAddress($coinId, $address)
+    {
+        return self::where('mode', self::TO_BE_CONFIRMED)
+            ->where('address', $address)
+            ->active()
+            ->where('coin_id', $coinId)
+            ->first();
+    }
+
+    public static function findCanUseAddresses($coinId)
+    {
+        return self::where('mode', self::CAN_USE)
+            ->active()
+            ->where('coin_id', $coinId)
+            ->whereNotNull('tx_id')
+            ->whereNotNull('v_out')
+            ->whereNotNull('amount')
+            ->get();
+    }
+
+    public static function findCanUseAddressesPlain($coinId)
+    {
+        return self::where('mode', self::CAN_USE)
+            ->active()
+            ->where('coin_id', $coinId)
+            ->whereNotNull('amount')
+            ->get();
+    }
+
+    public static function findMaxIndexByAccountByCoin($accountNo, $coinId)
+    {
+        return self::where('coin_id', $coinId)
+            ->where('account_no', $accountNo)
+            ->orderBy('index_no', 'desc')
+            ->first();
+    }
+    /*Find Queries End*/
+
+    /*Get Queries Start*/
+    public static function getAddressCountByCoin()
+    {
+        return self::selectRaw('count(id) as total_count, coin_id')
+            ->groupBy('coin_id')
+            ->get();
+    }
+
+    public static function getUsedAddressCountByCoin()
+    {
+        return self::selectRaw('count(id) as used_count , coin_id')
+            ->whereIn('mode', [self::CAN_USE, self::USED])
+            ->groupBy('coin_id')
+            ->get();
+    }
+
+    public static function getMaxIndexByAccountByCoin()
+    {
+        return self::selectRaw('max(index_no) as max_index , account_no, coin_id')
+            ->groupBy('coin_id', 'account_no')
+            ->get();
+    }
+    /*Get Queries End*/
+
+    /*Update Queries Start*/
+    public static function updateToUsedMode($ids)
+    {
+        return self::active()
+            ->whereIn('id', $ids)
+            ->update([
+                'mode' => self::USED,
+            ]);
+    }
+    /*Update Queries End*/
+}
+

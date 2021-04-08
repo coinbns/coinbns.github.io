@@ -1,0 +1,87 @@
+<?php
+
+namespace App\Exceptions;
+
+use App\Mail\ExceptionOccured;
+use Exception;
+use Illuminate\Foundation\Exceptions\Handler as ExceptionHandler;
+use Mail;
+use Symfony\Component\Debug\ExceptionHandler as SymfonyExceptionHandler;
+use Symfony\Component\Debug\Exception\FlattenException;
+use App\Events\ErrorBroadcasting;
+
+class Handler extends ExceptionHandler
+{
+    /**
+     * A list of the exception types that are not reported.
+     *
+     * @var array
+     */
+    protected $dontReport = [
+        'League\OAuth2\Server\Exception\OAuthServerException'
+    ];
+
+    /**
+     * A list of the inputs that are never flashed for validation exceptions.
+     *
+     * @var array
+     */
+    protected $dontFlash = [
+        'password',
+        'password_confirmation',
+    ];
+
+    /**
+     * Report or log an exception.
+     *
+     * This is a great spot to send exceptions to Sentry, Bugsnag, etc.
+     * @param Exception $exception
+     * @return mixed|void
+     * @throws Exception
+     */
+    public function report(Exception $exception)
+    {
+        if (config('app.mail_exception') && $this->shouldReport($exception)) {
+            $this->sendEmail($exception);
+        }
+
+        if ($this->shouldReport($exception)) {
+            $error = array(
+                'type' => config('logging.error_type.LARAVEL'),
+                'message' => $exception->getMessage(). ' at File: '.$exception->getFile().":".$exception->getLine(),
+                'date' => date('Y-m-d')
+            );
+            $objError = json_encode($error);
+            broadcast(new ErrorBroadcasting($objError));
+        }
+        parent::report($exception);
+    }
+
+    /**
+     * Render an exception into an HTTP response.
+     *
+     * @param  \Illuminate\Http\Request $request
+     * @param  \Exception $exception
+     * @return \Illuminate\Http\Response
+     */
+    public function render($request, Exception $exception)
+    {
+        return parent::render($request, $exception);
+    }
+
+    public function sendEmail(Exception $exception)
+    {
+        try {
+            $e = FlattenException::create($exception);
+
+            $handler = new SymfonyExceptionHandler();
+
+            $html = $handler->getHtml($e);
+
+            Mail::to(config('app.exception_mail_recipient'))->send(new ExceptionOccured($html));
+        } catch (Exception $ex) {
+            dd($ex);
+        }
+    }
+}
+

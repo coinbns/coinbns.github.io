@@ -1,0 +1,70 @@
+<?php
+
+namespace App\Models;
+
+//use \App\Models;
+
+use App\Models\MongoModel as Model;
+
+class DisputeChatMessage extends Model
+{
+    //type
+    const TYPE_TEXT = 1;
+    const TYPE_IMAGE = 2;
+    const TYPE_DOC = 3;
+
+    //status
+    const DELETED = 0;
+    const ACTIVE = 1;
+    const INACTIVE = 2;
+
+    /*Create Queries Start*/
+    public static function createChatMessage($data)
+    {
+
+        $chatMessage = new self;
+
+        $chatMessage->user_id = (int)$data['user_id'];
+        $chatMessage->dispute_id = (int)$data['dispute_id'];
+        $chatMessage->type = $data['type'];
+        $chatMessage->content = $data['content'];
+        $chatMessage->recipient_id = (int)$data['recipient_id'];
+        $chatMessage->recipient_read_at = $data['recipient_read_at'];
+        $chatMessage->created_at = $data['created_at'];
+        $chatMessage->status = $data['status'];
+        $chatMessage->save();
+
+        return $chatMessage->id;
+    }
+    /*Create Queries End*/
+
+    /*Get Queries Start*/
+    public static function getChatMessagesByDisputeId($disputeId)
+    {
+        return self::where('dispute_id', (int)$disputeId)->get();
+    }
+
+    public static function getChatMessagesByDisputeIdByUserId($disputeId, $userId)
+    {
+        // return self::
+        // where(['dispute_id' => $disputeId])
+        //     ->where(function ($query) use ($userId) {
+        //         $query->where('user_id', (int)$userId)
+        //             ->Where('recipient_id', (int)0);
+        //     })
+        //     ->where(function ($query) use ($userId) {
+        //         $query->where('user_id', (int)0)
+        //             ->Where('recipient_id', (int)$userId);
+        //     })
+        //     ->get();
+
+        return self::where(['dispute_id' => (int)$disputeId])
+        ->where(function ($query) use ($userId) {
+                    $query->where('user_id', (int)$userId)
+                        ->orWhere('recipient_id', (int)$userId);
+                })
+        ->get();
+    }
+    /*Get Queries End*/
+}
+

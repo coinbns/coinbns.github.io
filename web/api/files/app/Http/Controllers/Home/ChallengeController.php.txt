@@ -1,0 +1,182 @@
+<?php
+
+namespace App\Http\Controllers\Home;
+
+use Auth;
+use Hash;
+use Validator;
+use App\Http\Controllers\Controller;
+use App\Models\AuthorizationChallenge;
+use App\Models\UserMnemonicWord;
+use App\Models\UserMnemonic;
+use App\Models\UserAccessLog;
+use Illuminate\Http\Request;
+
+
+class ChallengeController extends Controller
+{
+    public function createMnemonicWordsChallenge(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'complexity' => 'required',
+        ]);
+        if ($validator->fails()) {
+            return response()->api(false, implode(', ', $validator->errors()->all()), null);
+        }
+
+        $complexity = $request->complexity;
+        $challenge = AuthorizationChallenge::findByUserIdByComplexity(Auth::id(), $complexity);
+        if (true == empty($challenge)) {
+            return $this->createWordChallenge(Auth::id(), $complexity);
+        }
+
+        switch ($challenge->challenge_status) {
+            case AuthorizationChallenge::PASSED:
+                if (now()->gt($challenge->valid_till)) {
+                    $challenge->status = AuthorizationChallenge::INACTIVE;
+                    $challenge->save();
+
+                    return $this->createWordChallenge(Auth::id(), $complexity);
+                }
+                return $this->challengePassedResponse();
+                break;
+            case AuthorizationChallenge::PENDING:
+                $totalMnemonicWords = UserMnemonicWord::countUserMnemonicWords(Auth::id());
+                if ($totalMnemonicWords == 0) {
+                    return response()->api(false, 'Mneumonic is not set', null);
+                }
+                $numbers = randomNumGenerator(1, $totalMnemonicWords + 1, $complexity);
+                $challenge->numbers = json_encode($numbers);
+                $challenge->save();
+                return response()->api(true, 'Challenge created successfully', [
+                    'success' => null,
+                    'numbers' => $numbers,
+                ]);
+                break;
+            case AuthorizationChallenge::TIMED_OUT:
+                if (now()->gt($challenge->valid_till)) {
+                    $challenge->status = AuthorizationChallenge::INACTIVE;
+                    $challenge->save();
+
+                    return $this->createWordChallenge(Auth::id(), $complexity);
+                }
+                return $this->challengeTimedOutResponse();
+                break;
+            default:
+                return response()->api(false, 'Error', null);
+                break;
+        }
+    }
+
+    public function verifyMnemonicWordsChallenge(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'numbers.*.number' => 'required|integer',
+            'numbers.*.word' => 'required|string',
+            'complexity' => 'required',
+        ]);
+        if ($validator->fails()) {
+            return response()->api(false, implode(', ', $validator->errors()->all()), null);
+        }
+
+        $challenge = AuthorizationChallenge::findByUserIdByComplexity(Auth::id(), $request->complexity);
+        if (true == empty($challenge)) {
+            return response()->api(false, 'No challenge found', null);
+        }
+
+        $words = UserMnemonicWord::getByUserByNumbers($challenge->numbers, Auth::id())->keyBy('number');
+        foreach ($request->numbers as $key => $number) {
+            if (false == Hash::check($number['word'], $words[$number['number']]->word)) {
+                $challenge->retry_count += 1;
+                if ($challenge->retry_count >= config('app.challenge_word_retry_limit')) {
+                    $challenge->challenge_status = AuthorizationChallenge::TIMED_OUT;
+                    $challenge->valid_till = now()->addMinutes(config('app.challenge_word_retry_timeout'));
+                    $challenge->save();
+
+                    Auth::user()->suspended_till = now()->addMinutes(10);
+                    Auth::user()->save();
+
+                    return $this->challengeTimedOutResponse();
+                }
+                $totalMnemonicWords = UserMnemonicWord::countUserMnemonicWords(Auth::id());
+                if ($totalMnemonicWords == 0) {
+                    return response()->api(false, 'Mneumonic is not set', null);
+                }
+                $numbers = randomNumGenerator(1, $totalMnemonicWords + 1, $request->complexity);
+                $challenge->numbers = json_encode($numbers);
+                $challenge->save();
+
+                return $this->challengeFailedResponse(Auth::id(), $request->complexity,
+                    config('app.challenge_word_retry_limit') - $challenge->retry_count, $numbers);
+            }
+        }
+        $challenge->challenge_status = AuthorizationChallenge::PASSED;
+        $challenge->valid_till = now()->addMinutes(config('app.challenge_word_success_timeout'));
+        $challenge->save();
+
+        if ($request->complexity == AuthorizationChallenge::LOGIN_COMPLEXITY) {
+            $userAccessLog = UserAccessLog::findLatestByTypeByUserByClient(UserAccessLog::LOGIN, Auth::id(),
+                Auth::user()->token()->client_id);
+            if (false == empty($userAccessLog)) {
+                $userAccessLog->is_mnemonic_verified = 1;
+                $userAccessLog->save();
+            }
+        }
+
+        return $this->challengePassedResponse();
+    }
+
+    private function createWordChallenge($userId, $complexity)
+    {
+        $totalMnemonicWords = UserMnemonicWord::countUserMnemonicWords($userId);
+        if ($totalMnemonicWords == 0) {
+            return response()->api(false, 'Mneumonic is not set', null);
+        }
+        $numbers = randomNumGenerator(1, $totalMnemonicWords + 1, $complexity);
+
+        AuthorizationChallenge::createChallenge([
+            'user_id' => $userId,
+            'numbers' => json_encode($numbers),
+            'complexity' => $complexity,
+            'challenge_status' => AuthorizationChallenge::PENDING,
+            'retry_count' => 0,
+            'valid_till' => null,
+            'status' => AuthorizationChallenge::ACTIVE,
+        ]);
+
+        return response()->api(true, 'Challenge created successfully', [
+            'success' => null,
+            'numbers' => $numbers,
+        ]);
+    }
+
+    private function challengePassedResponse()
+    {
+        return response()->api(true, 'Challenge was succeeded ', [
+            'success' => true,
+        ]);
+    }
+
+    private function challengeFailedResponse($userId, $complexity, $retriesLeft, $numbers)
+    {
+        $totalMnemonicWords = UserMnemonicWord::countUserMnemonicWords($userId);
+        if ($totalMnemonicWords == 0) {
+            return response()->api(false, 'Mneumonic is not set', null);
+        }
+
+        return response()->api(true, "Challenge was failed, attempts left: {$retriesLeft}", [
+            'success' => false,
+            'max_try_out_reached' => false,
+            'numbers' => $numbers,
+        ]);
+    }
+
+    private function challengeTimedOutResponse()
+    {
+        return response()->api(true, 'Challenge was failed and user is timed out', [
+            'success' => false,
+            'max_try_out_reached' => true,
+        ]);
+    }
+}
+

@@ -1,0 +1,37 @@
+<?php
+
+namespace App\Http\Middleware;
+
+use Auth;
+use Cache;
+use Closure;
+use Illuminate\Auth\Middleware\Authenticate;
+use Illuminate\Auth\AuthenticationException;
+
+class AuthWithCache extends Authenticate
+{
+    /**
+     * Handle an incoming request.
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @param  \Closure  $next
+     * @return mixed
+     */
+    public function handle($request, Closure $next, ...$guards)
+    {
+        if (Auth::check()) {
+            Cache::forever('userId'.Auth::id().'LastSeen', now());
+        }
+
+        if ($request->header('x-admin')) {
+            config(['auth.guards.api.driver' => 'passport']);
+            $guards = ['admin_api'];
+        }
+
+        return parent::handle($request, $next, ...$guards);
+
+        // return $next($request);
+        
+    }
+}
+

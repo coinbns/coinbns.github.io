@@ -1,0 +1,67 @@
+<?php
+
+namespace App\Models;
+
+use App\Http\Controllers\Home\AdvertisementController;
+use App\Models\Model;
+
+class AdvertisementPaymentMethod extends Model
+{
+    /*Create Queries Start*/
+
+    public static function batchCreatePaymentMethods($data)
+    {
+        self::insert($data);
+    }
+
+    /*Create Queries End*/
+
+
+    /*Delete Queries Start*/
+    /**
+     * Delete the previous payment methods if the Ad is updated
+     *
+     * @used-by AdvertisementController::upsertAdvertisement()
+     * @param array $ids
+     * @return mixed
+     */
+    public static function deletePaymentMethods($ids)
+    {
+        return self::whereIn('id', $ids)
+            ->update([
+                'status' => self::INACTIVE,
+            ]);
+    }
+    /*Delete Queries End*/
+
+    /*Get Queries Start*/
+
+    public static function getByAdId($advertisementId)
+    {
+        return self::select(
+                'payment_methods.name as payment_method_name',
+                'advertisement_payment_methods.payment_method_id',
+                'advertisement_payment_methods.advertisement_id'
+            )
+            ->join('payment_methods', 'payment_methods.id', '=', 'advertisement_payment_methods.payment_method_id')
+            ->where('advertisement_payment_methods.advertisement_id', $advertisementId)
+            ->where('advertisement_payment_methods.status', self::ACTIVE)
+            ->get();
+    }
+
+    public static function getByAdIds($advertisementIds)
+    {
+        return self::select(
+                'payment_methods.name as payment_method_name',
+                'advertisement_payment_methods.payment_method_id',
+                'advertisement_payment_methods.advertisement_id'
+            )
+            ->join('payment_methods', 'payment_methods.id', '=', 'advertisement_payment_methods.payment_method_id')
+            ->whereIn('advertisement_payment_methods.advertisement_id', $advertisementIds)
+            ->where('advertisement_payment_methods.status', self::ACTIVE)
+            ->get();
+    }
+    
+    /*Get Queries End*/
+}
+

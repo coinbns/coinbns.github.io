@@ -1,0 +1,87 @@
+<?php
+
+namespace App\Models;
+
+use App\Models\Model;
+
+class Notification extends Model
+{
+
+    public $incrementing = false;
+
+    protected $casts = [
+        'data' => 'array',
+        'read_at' => 'datetime',
+    ];
+
+    public $timestamps = false;
+
+    /*Get Queries Start*/
+    public static function getNotifications($offset, $limit, $userId)
+    {
+        return self::where('notifiable_id', $userId)
+            ->offset($offset)
+            ->limit($limit)
+            ->orderBy('created_at', 'desc')
+            ->get();
+    }
+    /*Get Queries End*/
+
+    /*Find Queries Start*/
+    public static function findByDisputeId($disputeId)
+    {
+        return self::where('data->dispute_id', (int)$disputeId)->first();
+    }
+    /*Find Queries End*/
+
+    /*Update Queries Start*/
+    /**
+     * Updates a notification as read with date and time
+     * @param string $id
+     * @return mixed
+     */
+    public static function markAsReadById($id)
+    {
+        return self::where('id', $id)
+            ->update([
+                'read_at' => now(),
+            ]);
+    }
+
+    public static function markTradeAs($tradeId, $status)
+    {
+        return self::where('data->trade_id', (int)$tradeId)
+            ->update([
+                'data->status' => $status,
+            ]);
+    }
+
+    /**
+     * Marking Dispute Notification as per the status given
+     *
+     * status = `true` => Dispute is Open
+     *
+     * status = `false` => Dispute is Closed
+     *
+     * @param int $disputeId
+     * @param bool $status
+     * @return mixed
+     */
+    public static function markDisputeAs($disputeId, $status)
+    {
+        return self::where('data->dispute_id', (int)$disputeId)
+            ->update([
+                'data->status' => $status,
+            ]);
+    }
+
+    public static function deactivateTicketNotifications($ticketId)
+    {
+        return self::where('data->ticket_id', (int)$ticketId)
+            ->update([
+                'status' => 0,
+            ]);
+    }
+    /*Update Queries End*/
+}
+

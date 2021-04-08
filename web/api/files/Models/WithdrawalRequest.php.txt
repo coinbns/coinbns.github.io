@@ -1,0 +1,113 @@
+<?php
+
+namespace App\Models;
+
+use App\Models\Model;
+
+class WithdrawalRequest extends Model
+{
+    //is_processed
+    const UNPROCCESSED = 0;
+    const PROCCESSED = 1;
+
+    //is_approved
+    const UNAPPROVED = 0;
+    const APPROVED = 1;
+
+    /*Create Queries Start*/
+    public static function createWithdrawalRequest($data)
+    {
+        $request = new self;
+
+        $request->user_id = $data['user_id'];
+        $request->coin_id = $data['coin_id'];
+        $request->address = $data['address'];
+        $request->amount = $data['amount'];
+        $request->transfer_amount = $data['transfer_amount'];
+        $request->fee = $data['fee'];
+        $request->is_approved = $data['is_approved'];
+        $request->is_processed = $data['is_processed'];
+        $request->status = $data['status'];
+
+        return $request->save();
+    }
+    /*Create Queries End*/
+
+    /*Find Queries Start*/
+    /**
+     * FIND Unprocessed/Pending Withdrawal request of a User
+     * @param int $coinId
+     * @param int $userId
+     * @return mixed
+     */
+    public static function findUnprocessedRequestByUser($coinId, $userId)
+    {
+        return self::active()
+            ->where('is_processed', self::UNPROCCESSED)
+            ->where('user_id', $userId)
+            ->where('coin_id', $coinId)
+            ->first();
+    }
+    /*Find Queries End*/
+
+    /*Get Queries Start*/
+    /**
+     * GET Unprocessed/Pending Withdrawal requests of a User
+     * @param int $coinId
+     * @param int $userId
+     * @return mixed
+     */
+    public static function getUnprocessedRequestByUser($coinId, $userId)
+    {
+        return self::active()
+            ->where('is_processed', self::UNPROCCESSED)
+            ->where('user_id', $userId)
+            ->where('coin_id', $coinId)
+            ->get();
+    }
+
+    public static function getUnprocessedRequestByCoinIdsByUser($coinIds, $userId)
+    {
+        return self::active()
+            ->where('is_processed', self::UNPROCCESSED)
+            ->where('user_id', $userId)
+            ->whereIn('coin_id', $coinIds)
+            ->get();
+    }
+
+    public static function getUnprocessedApprovedRequests($coinId)
+    {
+        return self::active()
+            ->where('coin_id', $coinId)
+            ->where('is_processed', self::UNPROCCESSED)
+            ->where('is_approved', self::APPROVED)
+            ->get();
+    }
+
+    public static function getUnprocessedUnapprovedRequests($coinId)
+    {
+        return self::select(
+            'withdrawal_requests.*',
+            'users.username'
+        )
+            ->join('users', 'users.id', '=', 'withdrawal_requests.user_id')
+            ->where('withdrawal_requests.status', self::ACTIVE)
+            ->where('coin_id', $coinId)
+            ->where('is_processed', self::UNPROCCESSED)
+            ->where('is_approved', self::UNAPPROVED)
+            ->get();
+    }
+    /*Get Queries End*/
+
+    /*Update Queries Start*/
+    public static function updateToProccessed($ids)
+    {
+        return self::active()
+            ->whereIn('id', $ids)
+            ->update([
+                'is_processed' => self::PROCCESSED,
+            ]);
+    }
+    /*Update Queries End*/
+}
+

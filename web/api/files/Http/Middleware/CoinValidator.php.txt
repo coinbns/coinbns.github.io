@@ -1,0 +1,35 @@
+<?php
+
+namespace App\Http\Middleware;
+
+use Closure;
+use App\Models\Coin;
+
+class CoinValidator
+{
+    /**
+     * Handle an incoming request.
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @param  \Closure  $next
+     * @return mixed
+     */
+    public function handle($request, Closure $next)
+    {
+        if (true == empty($request->coin)) {
+            return response()->api(false, "Coin not provided", null);            
+        }
+        $coin = Coin::findBySymbol($request->coin);
+        if (true == empty($coin)) {
+            return response()->api(false, "Coin does not exist", null);
+        } else {
+            $request->merge([
+                'coin_id' => $coin->id,
+                'coin_obj' => $coin,
+            ]);
+        }
+
+        return $next($request);
+    }
+}
+

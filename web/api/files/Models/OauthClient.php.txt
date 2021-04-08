@@ -1,0 +1,30 @@
+<?php
+
+namespace App\Models;
+
+use App\Models\Model;
+
+class OauthClient extends Model
+{
+    //password client will be 1 or 0 (boolean)
+
+    //client name
+    const WEB= 'Web';
+    const Mobile= 'Mobile';
+
+    /*Create Queries Start Here*/
+    /*Create Queries End Here*/
+
+    /*Find Queries Start Here*/
+    public static function findByIdBySecret($id, $secret)
+    {
+        return self::where('secret', $secret)
+            ->where('password_client', 1)
+            ->find($id);
+    }
+    /*Find Queries End Here*/
+
+    /*Get Queries Start Here*/
+    /*Get Queries End Here*/
+}
+

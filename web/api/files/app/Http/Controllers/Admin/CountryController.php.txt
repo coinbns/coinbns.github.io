@@ -1,0 +1,89 @@
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use Illuminate\Http\Request;
+use App\Http\Controllers\Controller;
+use Auth;
+use Validator;
+use DB;
+use App\Models\Country;
+use App\Models\Currency;
+
+class CountryController extends Controller
+{
+    public function viewCountries()
+    {
+        return view('admin.country.list')->with('countries', Country::getCountries());
+    }
+
+    public function viewAddCountry()
+    {
+        return view('admin.country.add_country')->with('currencies', Currency::get());
+    }
+
+    public function addCountry(Request $request)
+    {
+        $validator = request()->validate([
+            'name' => 'required|unique:countries,name',
+            'code' => 'required|unique:countries,code',
+            'dialing_code' => 'required',
+            'currency' => 'required',
+        ]);
+
+        $country = Country::createCountry(array(
+            'name' => $request->name,
+            'currency_id' => $request->currency,
+            'dialing_code' => $request->dialing_code,
+            'code' => $request->code
+        ));
+
+        return redirect()->route('admin.countries');
+    }
+
+    public function viewEditCountry($countryId)
+    {
+        $country = Country::findCountry($countryId);
+        if ($country) {
+            return view('admin.country.edit_country')->with(['country' => $country, 'currencies' => Currency::get()]);
+        } else {
+            abort(404);
+        }
+    }
+
+    public function updateCountry(Request $request)
+    {
+
+        $validator = request()->validate([
+            'name' => 'required|unique:countries,name,' . $request->country_id,
+            'code' => 'required|unique:countries,code,' . $request->country_id,
+            'dialing_code' => 'required',
+            'currency' => 'required'
+        ]);
+
+        Country::updateCountry($request->country_id, array(
+            'name' => $request->name,
+            'code' => $request->code,
+            'currency_id' => $request->currency,
+            'dialing_code' => $request->dialing_code,
+        ));
+        return redirect()->route('admin.country.edit', array($request->country_id));
+
+    }
+
+    public function updateStatus(Request $request)
+    {
+
+        $countId = $request->count_id;
+        $status = $request->status;
+        $data = array(
+            'status' => $status
+        );
+        if (Country::updateCountry($countId, $data)) {
+            return response()->json(array('success' => true));
+        } else {
+            return response()->json(array('success' => false));
+        }
+    }
+}
+

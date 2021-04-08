@@ -1,0 +1,69 @@
+<?php
+
+namespace App\Coins;
+
+use App\Models\Coin as CoinModel;
+use App\Models\User as UserModel;
+
+/**
+ * A common class to validate and manage different type of coins like BTC, ETH etc.
+ *
+ * A class is created by the name of the coin viz. BTC, ETH etc and when a coin name is passed through its constructor that particular coin class will be used to manage the operation.
+ *
+ * Class CoinStrategy
+ * @package App\Coins
+ */
+class CoinStrategy
+{
+    private $coin;
+
+    public function __construct(string $coin)
+    {
+        $path = "App\Coins\\{$coin}";
+        if (false == class_exists($path)) {
+            throw new \Exception("class {$coin} not found");
+        } 
+        $this->coin = new $path();
+    }
+
+    public function getMiscDataValidatorFields()
+    {
+        return $this->coin->getMiscDataValidatorFields();
+    }
+
+    public function validateAddress($address)
+    {
+        return $this->coin->addressValidator($address);
+    }
+
+    public function getWithdrawalApprovalLimit(CoinModel $coin, $inDigits = false)
+    {
+        return $this->coin->getWithdrawalApprovalLimit($coin, $inDigits);
+    }
+
+    public function getRecievingAddress(CoinModel $coin, UserModel $user)
+    {
+        return $this->coin->getRecievingAddress($coin, $user);
+    }
+
+    public function storeCoin(CoinModel $coin)
+    {
+        return $this->coin->storeCoin($coin);
+    }
+
+    public function depositAmount($request)
+    {
+        return $this->coin->depositAmount($request);
+    }
+
+    public function markAddress($request)
+    {
+        return $this->coin->markAddress($request);
+    }
+    
+    public function transferCoin(CoinModel $coin)
+    {
+        return $this->coin->transferCoin($coin);
+    }
+}
+

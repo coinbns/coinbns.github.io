@@ -1,0 +1,228 @@
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use App\Coins\CoinStrategy;
+use App\Http\Controllers\Controller;
+use App\Models\Coin;
+use App\Models\CoinDetail;
+use Illuminate\Http\Request;
+use Storage;
+use Validator;
+
+class CoinController extends Controller
+{
+    public function viewCoins()
+    {
+        $coins = Coin::getCoinsWithDetail();
+        $routes = ['trade', 'deposit', 'withdrawal'];
+
+        if (Storage::exists('coin_disabilities.json')) {
+            $coinDisabilities = json_decode(Storage::get('coin_disabilities.json'), true);
+        } else {
+            $coinDisabilities = [];
+        }
+
+        foreach ($coins as $key => $coin) {
+            $coinRoutes = [];
+            foreach ($routes as $key => $route) {
+                if (false == empty($coinDisabilities[$coin->symbol]) 
+                    && in_array($route, $coinDisabilities[$coin->symbol])) {
+                        $coinRoutes[$route] = false;
+                } else {
+                    $coinRoutes[$route] = true;
+                }
+            }
+            $coin->route = $coinRoutes;
+        }
+        
+        return view('admin.coin.list', compact('coins', 'routes'));
+    }
+
+    public function viewCoin($coinId)
+    {
+        $coin = Coin::find($coinId);
+        if (true == empty($coin)) {
+            abort(404);
+        }
+        $coin->load(['detail']);
+        if (true == empty($coin->detail->misc_data)) {
+            $coin->detail->misc_data = json_encode((new CoinStrategy($coin->symbol))->getMiscDataValidatorFields());
+        }
+
+        return view('admin.coin.edit', compact('coin'));
+    }
+
+    public function upsertCoin(Request $request)
+    {
+        $request->validate([
+            'name' => 'required',
+            'symbol' => 'required',
+            'color' => 'required',
+            'detail.max_ad_limit' => 'required',
+            'detail.trade_fee_percentage' => 'required',
+            'detail.merchant_fee_percentage' => 'required',
+            'detail.featured_ad_trade_fee_percentage' => 'required',
+            'detail.withdrawal_fee' => 'required',
+            'detail.broadcast_tx_url' => 'required',
+            'detail.broadcast_tx_key' => 'required',
+            'detail.script_type' => 'required',
+            'detail.misc_data' => 'required|json',
+            // 'subscriber.confirmations' => 'required',
+            // 'subscriber.wss' => 'required',
+            // 'subscriber.address_channel' => 'required',
+            // 'subscriber.insight.url' => 'required',
+            // 'subscriber.insight.tx_get' => 'required',
+        ]);
+        
+        $miscData = json_decode($request->detail['misc_data'], true);
+        $miscDataValidatorFields = (new CoinStrategy($request->symbol))->getMiscDataValidatorFields();
+        $validator = Validator::make($miscData, $miscDataValidatorFields);
+        if ($validator->fails()) {
+            // return response()->api(false, implode(', ', $validator->errors()->all()), null);
+            return back()->withErrors($validator->errors()->all());
+        }
+
+        if (false == empty($request->id)) {
+            $coin = Coin::find($request->id);
+            if (true == empty($coin)) {
+                return response()->api(false, 'Coin not found', null);
+            }
+            $coin->name = $request->name;
+            $coin->symbol = $request->symbol;
+            $coin->color = $request->color;
+            $coin->is_testnet = $request->is_testnet ? 1 : 0;
+            $coin->save();
+
+            $coinDetail = $coin->detail;
+            $coinDetail->max_ad_limit = $request->detail['max_ad_limit'];
+            $coinDetail->trade_fee_percentage = $request->detail['trade_fee_percentage'];
+            $coinDetail->featured_ad_trade_fee_percentage = $request->detail['featured_ad_trade_fee_percentage'];
+            $coinDetail->merchant_fee_percentage = $request->detail['merchant_fee_percentage'];
+            $coinDetail->withdrawal_fee = $request->detail['withdrawal_fee'];
+            $coinDetail->bip_path_start = $request->detail['bip_path_start'];
+            $coinDetail->broadcast_tx_url = $request->detail['broadcast_tx_url'];
+            $coinDetail->broadcast_tx_key = $request->detail['broadcast_tx_key'];
+            $coinDetail->script_type = $request->detail['script_type'];
+            $coinDetail->misc_data = $miscData;
+            $coinDetail->save();
+
+            // $subscriberCoinConfig = json_decode(file_get_contents(storage_path('subscriber_coin_config.json')), true);
+            // $subscriber = $subscriberCoinConfig[$coin->symbol];
+            // if ($subscriber != $request->subscriber) {
+
+            //     $http = new \GuzzleHttp\Client;
+            //     try {
+            //         $subResponse = $http->post(config('app.subscriber_endpoint') . "/config/coin", [
+            //             'json' => [
+            //                 'coins' => [
+            //                     $coin->symbol => $request->subscriber
+            //                 ],
+            //                 'key' => config('app.connector_key'),
+            //             ],
+            //         ]);
+            //     } catch (\Exception $e) {
+            //         return response()->api(false, "node Error {$e->getMessage()}", null);
+            //     }
+            //     if ($subResponse->getStatusCode() != 200
+            //         || json_decode($subResponse->getBody())->status == false) {
+            //             return response()->api(false, "node Error 2 {$e->getMessage()}", null);
+            //     }
+
+            //     $subscriberCoinConfig[$coin->symbol] = $request->subscriber;
+            //     file_put_contents(storage_path('subscriber_coin_config.json'), json_encode($subscriberCoinConfig));
+
+            // }
+
+            // return response()->api(true, 'Coin updated', null);
+            return back();
+        }
+
+        // $subscriberCoinConfig = json_decode(file_get_contents(storage_path('subscriber_coin_config.json')), true);
+        // $http = new \GuzzleHttp\Client;
+        // try {
+        //     $subResponse = $http->post(config('app.subscriber_endpoint') . "/config/coin", [
+        //         'json' => [
+        //             'coins' => [
+        //                 $request->symbol => $request->subscriber
+        //             ],
+        //             'key' => config('app.connector_key'),
+        //         ],
+        //     ]);
+        // } catch (\Exception $e) {
+        //     return response()->api(false, "node Error {$e->getMessage()}", null);
+        // }
+        // if ($subResponse->getStatusCode() != 200
+        //     || json_decode($subResponse->getBody())->status == false) {
+        //         return response()->api(false, "node Error 2 {$e->getMessage()}", null);
+        // }
+
+        // $subscriberCoinConfig[$request->symbol] = $request->subscriber;
+        // file_put_contents(storage_path('subscriber_coin_config.json'), json_encode($subscriberCoinConfig));
+
+        $coinId = Coin::createCoin([
+            'name' => $request->name,
+            'symbol' => $request->symbol,
+            'color' => $request->color,
+            'price' => 0,
+            'is_testnet' => $request->is_testnet ? 1 : 0,
+            'status' => Coin::INACTIVE,
+        ]);
+        CoinDetail::createDetail([
+            'coin_id' => $coinId,
+            'max_ad_limit' => $request->detail['max_ad_limit'],
+            'trade_fee_percentage' => $request->detail['trade_fee_percentage'],
+            'featured_ad_trade_fee_percentage' => $request->detail['featured_ad_trade_fee_percentage'],
+            'withdrawal_fee' => $request->detail['withdrawal_fee'],
+            'merchant_fee_percentage' => $request->detail['merchant_fee_percentage'],
+            'bip_path_start' => $request->detail['bip_path_start'],
+            'broadcast_tx_url' => $request->detail['broadcast_tx_url'],
+            'broadcast_tx_key' => $request->detail['broadcast_tx_key'],
+            'script_type' => $request->detail['script_type'],
+            'misc_data' => $miscData,
+            'status' => CoinDetail::ACTIVE,
+        ]);
+
+        // return response()->api(true, 'Coin inserted', null);
+        return redirect('admin/coins');
+    }
+
+    public function updateCoinStatus(Request $request)
+    {
+        Coin::updateStatus($request->coin_id, $request->status);
+        return response()->json(array('success' => true));
+    }
+
+    public function updateRouteDisablity(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'route' => 'required',
+            'symbol' => 'required',
+        ]);
+        if ($validator->fails()) {
+            return response()->api(false, implode(', ', $validator->errors()->all()), null);
+        }
+
+        if (Storage::exists('coin_disabilities.json')) {
+            $coinDisabilities = json_decode(Storage::get('coin_disabilities.json'), true);
+            if (empty($coinDisabilities[$request->symbol])) {
+                $coinDisabilities[$request->symbol] = [$request->route];
+            } else {
+                $index = array_search($request->route, $coinDisabilities[$request->symbol]);
+                if (false === $index) {
+                    array_push($coinDisabilities[$request->symbol], $request->route);
+                } else {
+                    unset($coinDisabilities[$request->symbol][$index]);
+                }
+            }
+        } else {
+            $coinDisabilities = [
+                $request->symbol => [$request->route]
+            ];
+        }
+        Storage::put('coin_disabilities.json', json_encode($coinDisabilities));
+
+        return response()->api(true, 'Route disability changed', null);
+    }
+}
+

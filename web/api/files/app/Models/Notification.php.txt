@@ -1,0 +1,48 @@
+<?php
+
+namespace App\Models;
+
+use App\Models\Model;
+
+class Notification extends Model
+{
+
+    public $incrementing = false;
+
+    protected $casts = [
+        'data' => 'array',
+        'read_at' => 'datetime',
+    ];
+
+    public $timestamps = false;
+
+    /*Get Queries Start*/
+    public static function getNotifications($offset, $limit, $userId)
+    {
+        return self::where('notifiable_id', $userId)
+            ->offset($offset)
+            ->limit($limit)
+            ->orderBy('created_at', 'desc')
+            ->get();
+    }
+    /*Get Queries End*/
+
+    /*Update Queries Start*/
+    public static function markAsReadById($id)
+    {
+        return self::where('id', $id)
+            ->update([
+                'read_at' => now(),
+            ]);
+    }
+
+    public static function markTradeAs($tradeId, $status)
+    {
+        return self::where('data->trade_id', $tradeId)
+            ->update([
+                'data->status' => $status,
+            ]);
+    }
+    /*Update Queries End*/
+}
+

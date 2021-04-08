@@ -1,0 +1,274 @@
+<?php
+
+namespace App\Models;
+
+use App\Models\Model;
+
+class Trade extends Model
+{
+    //trade_status
+    const PENDING = 0;
+    const OPEN = 1;
+    const CLOSED = 2;
+    const REJECTED = 3;
+    const CANCELLED = 4;
+    const TIMED_OUT = 5;
+    const DISPUTE_OPEN = 6;
+    const DISPUTE_CLOSED = 7;
+
+    //is_commision_transferred
+    const COMMISSION_NOT_TRANSFERRED = 0;
+    const COMMISSION_TRANSFERRED = 1;
+
+    //trader_type
+    const BUYER = 1;
+    const SELLER = 2;
+
+    //trusted trade status
+    const TRUSTED = 1;
+
+    /*Relationships Start*/
+    public function coin()
+    {
+        return $this->belongsTo('App\Models\Coin');
+    }
+
+    public function advertisement()
+    {
+        return $this->belongsTo('App\Models\Advertisement');
+    }
+    /*Relationships End*/
+
+
+
+    /*Scopes Start*/
+    public function scopeClosed($query)
+    {
+        return $query->where('trade_status', self::CLOSED);
+    }
+
+    public function scopeOpen($query)
+    {
+        return $query->where('trade_status', self::OPEN);
+    }
+
+    public function scopePending($query)
+    {
+        return $query->where('trade_status', self::PENDING);
+    }
+    /*Scopes End*/
+
+
+
+    /*Create Queries Start*/
+    public static function createTrade($data)
+    {
+        $trade = new self;
+
+        $trade->coin_id = $data['coin_id'];
+        $trade->seller_id = $data['seller_id'];
+        $trade->buyer_id = $data['buyer_id'];
+        $trade->advertisement_id = $data['advertisement_id'];
+        $trade->message = $data['message'];
+        $trade->trade_margin_percentage = $data['trade_margin_percentage'];
+        $trade->coin_value = $data['coin_value'];
+        $trade->coin_original_value = $data['coin_original_value'];
+        $trade->commision_value = $data['commision_value'];
+        $trade->is_commision_transferred = $data['is_commision_transferred'];
+        $trade->did_buyer_confirmed_payment = $data['did_buyer_confirmed_payment'];
+        $trade->did_seller_received_payment = $data['did_seller_received_payment'];
+        $trade->did_seller_released_coins = $data['did_seller_released_coins'];
+        $trade->did_buyer_received_coins = $data['did_buyer_received_coins'];
+        $trade->trade_status = $data['trade_status'];
+        $trade->started_at = $data['started_at'];
+        $trade->fiat_value = $data['fiat_value'];
+        $trade->seller_trust_score = $data['seller_trust_score'];
+        $trade->status = $data['status'];
+        $trade->save();
+
+        return $trade->id;
+    }
+    /*Create Queries End*/
+
+
+
+    /*Find Queries Start*/
+    public static function findTrade($id)
+    {
+        return self::open()->active()->find($id);
+    }
+
+    public static function findTradeWithoutStatus($id)
+    {
+        return self::active()->find($id);
+    }
+
+    public static function findPendingTrade($id)
+    {
+        return self::pending()->active()->find($id);
+    }
+
+    /**
+     * Finds whether a Trade is already Open or Pending between buyer and seller for a particular advertisement
+     * @param int $advertismentId
+     * @param int $userId
+     * @return mixed
+     */
+    public static function findPendingOrOpenTrade($advertismentId, $userId)
+    {
+        return self::where('advertisement_id', $advertismentId)
+            ->active()
+            ->whereIn('trade_status', [self::PENDING, self::OPEN])
+            ->where(function ($query) use ($userId) {
+                $query->where('buyer_id', $userId)
+                    ->orWhere('seller_id', $userId);
+            })
+            ->first();
+    }
+
+    /**
+     * Finds a trade by id with `trade_status` as `CLOSED` or `DISPUTE_CLOSED`
+     * @param int $tradeId
+     * @param int $userId
+     * @return mixed
+     */
+    public static function findClosedTradeByIdByUserId($tradeId,$userId)
+    {
+        return self::where(function ($query) use($userId){
+            $query->where('seller_id',$userId)
+                ->orWhere('buyer_id',$userId);
+        })->where('id', $tradeId)->whereIn('trade_status', [self::CLOSED,self::DISPUTE_CLOSED])->first();
+    }
+    /*Find Queries End*/
+
+
+    /*Get Queries Start*/
+
+    /**
+     * GET completed trades in which a user is involved as seller or buyer.
+     *
+     * Disputed trades are also considered here because when dispute is resolved then we give each trader a score of 3
+     *
+     * @param int $userId
+     * @return mixed
+     */
+    public static function getClosedTradesByIdByUserId($userId)
+    {
+        return self::where(function ($query) use($userId){
+            $query->where('seller_id',$userId)
+                ->orWhere('buyer_id',$userId);
+        })->whereIn('trade_status', [self::CLOSED,self::DISPUTE_CLOSED])->get();
+    }
+
+    /**
+     * Gets completed trades with trade_type, seller username, buyer username, coin symbol and coin trade value
+     * @param null|int $limit default `null`
+     * @return mixed
+     */
+    public static function getCompletedTrades($limit = null)
+    {
+        $completedTrades = self::select(
+            'ads.trade_type',
+            'seller.username As seller_username',
+            'buyer.username As buyer_username',
+            'coins.symbol As coin_symbol',
+            'trades.coin_original_value'
+        )
+            ->join('advertisements as ads', 'ads.id','=','trades.advertisement_id')
+            ->join('users as seller','seller.id','=','trades.seller_id')
+            ->join('users as buyer','buyer.id','=','trades.buyer_id')
+            ->join('coins','coins.id','=','trades.coin_id')
+            ->where('trades.trade_status',self::CLOSED);
+        if(true == $limit){
+            $completedTrades = $completedTrades->limit($limit);
+        }
+        $completedTrades = $completedTrades->get();
+
+        return $completedTrades;
+    }
+    public static function getOpenTradeByUserIds($userIds)
+    {
+        return self::active()
+            ->open()
+            ->where(function ($query) use ($userIds) {
+                $query->whereIn('buyer_id', $userIds)
+                    ->orWhereIn('seller_id', $userIds);
+            })
+            ->get();
+    }
+
+    /**
+     * Fetches escrow trades of a user who is selling the coins
+     * @param int $coinId
+     * @param int $sellerId
+     * @return mixed
+     */
+    public static function getEscrowTradesBySellerId($coinId, $sellerId)
+    {
+        return self::active()
+            ->whereIn('trade_status', [self::DISPUTE_OPEN, self::OPEN])
+            ->where('coin_id', $coinId)
+            ->where('seller_id', $sellerId)
+            ->get();
+    }
+
+    public static function getEscrowTradesByCoinIdsBySellerId($coinIds, $sellerId)
+    {
+        return self::select('coin_id', 'coin_original_value')
+            ->active()
+            ->whereIn('trade_status', [self::DISPUTE_OPEN, self::OPEN])
+            ->whereIn('coin_id', $coinIds)
+            ->where('seller_id', $sellerId)
+            ->get();
+    }
+
+    public static function getOpenTradeByCoinIdByUserId($coinId, $userId)
+    {
+        return self::active()
+            ->open()
+            ->where('coin_id', $coinId)
+            ->where(function ($query) use ($userId) {
+                $query->where('buyer_id', $userId)
+                    ->orWhere('seller_id', $userId);
+            })
+            ->first();
+    }
+
+    public static function getCommissionNotTransferredTrades($coinId)
+    {
+        return self::where('is_commision_transferred', self::COMMISSION_NOT_TRANSFERRED)
+            ->active()
+            ->closed()
+            ->get();
+    }
+    /*Get Queries End*/
+
+
+
+    /*Update Queries Start*/
+    public static function updateToCommissionTransferred($ids)
+    {
+        return self::active()
+            ->whereIn('id', $ids)
+            ->update([
+                'is_commision_transferred' => self::COMMISSION_TRANSFERRED,
+            ]);
+    }
+    /*Update Queries End*/
+
+
+    /*Non Static Function Start*/
+
+    public function isUserInvolved(User $user)
+    {
+        return ($this->seller_id == $user->id) ? true : ($this->buyer_id == $user->id ? true : false);
+    }
+
+    public function identifyTrader(User $user)
+    {
+        return ($this->seller_id == $user->id) ? self::SELLER : ($this->buyer_id == $user->id ? self::BUYER : false);
+    }
+
+    /*Non Static Function Start*/
+}
+

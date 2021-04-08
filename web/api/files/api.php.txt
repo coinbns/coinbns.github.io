@@ -1,0 +1,320 @@
+<?php
+
+use App\Models\EventLogger;
+/*
+|--------------------------------------------------------------------------
+| API Routes
+|--------------------------------------------------------------------------
+|
+| Here is where you can register API routes for your application. These
+| routes are loaded by the RouteServiceProvider within a group which
+| is assigned the "api" middleware group. Enjoy building your API!
+|
+ */
+
+// Route::middleware('auth:api')->get('/user', function (Request $request) {
+//     return $request->user();
+// });
+
+Route::get('/users/profile/{username}', 'Home\AccountController@getProfile');
+
+Route::get(/**
+ * @param \Illuminate\Http\Request $request
+ * @return \Illuminate\View\View
+ */
+    '/mail-render-test', function (\Illuminate\Http\Request $request) {
+
+    return (new App\Mail\EmailTicketOutsideSecurity("hello dear", "1", 'https://chart.googleapis.com/chart?chs=200x200&chld=M%7C0&cht=qr&chl=otpauth%3A%2F%2Ftotp%2FSupport%3Adineshs%2540winchestertechnologies.com%3Fsecret%3D6ZPP6FBL7766YEG3%26issuer%3DSupport'))->render();
+
+});
+
+Route::get('/try', function (\Illuminate\Http\Request $request) {
+
+    dd(makeNodeRequest([
+        'to_address' => '0xde13445c7037479bad48fa251f3d165ea78b370a',
+        'amount' =>  $request->amount,
+        'chain_id' =>  $request->chain_id,
+        'nonce' => $request->nonce,
+        'gas_limit' => $request->gas_limit,
+        'gas_price' => $request->gas_price,
+        'bip_path' => 'm/44\'/60\'/10\'/0/0',//from
+    ], '/api/sign_eth_txs'));
+
+    // return (new App\Mail\VerifyRegistration("abc", "www.abc.com", "3"))->render();
+    dd(1);
+    $cipher = new phpseclib\Crypt\AES(); // could use AES::MODE_CBC
+    $key = openssl_random_pseudo_bytes(16);
+    $cipher->setKey($key);
+    $iv = phpseclib\Crypt\Random::string($cipher->getBlockLength() >> 3);
+    $cipher->setIV($iv);
+    $data = '{"coin":"Testnet","inputs":[{"tx_id":"1b37a25d027c6f7274189e18238dea6375208b1c163a479a44b7a55fe2bcfa0a","amount":222897946,"v_out":"0","bip_path":"m\/49\/1\/0\/0\/1"}],"outputs":[{"address":"2NCGmeFTA6DYm1xm1JKvwp8idGsmLWL4kBp","amount":222886801}]}';
+    $enc = $cipher->encrypt($data);
+    $dec = $cipher->decrypt($enc);
+    // dump(base64_encode($enc), $dec);
+
+    // $ciphernode = new phpseclib\Crypt\AES();
+    // $ciphernode->setKey(base64_decode("K3BVxKgbfvUgyZH659pWTA=="));
+    // $ciphernode->setIV(base64_decode("zLYwtv2cQq/v6kwg71FG9A=="));
+    // dump($ciphernode->decrypt(base64_decode("Op3RE/LecHV5cSwvQmkcfnVxn/qH/I7vy4Ggo3mGMnqOLhycIZQFacRoSDncDZBziyfho8tXfxykqcQZG6merwKOpfU8WM4FS6hGZlMnK7WAXX3sJtSBF9whC7IR8aIzflVI2JcDu3RJQ2N5gCizTTjLILOJL5Zu7Ac9XFSKEawGxAQq/Yo4A8jME5YXGQAnuM+Yn+xjb2UhCleBjTDHVg==")));
+
+    dd(1);
+    $pdf = new \setasign\Fpdi\Fpdi();
+    // $pdf->pdfParserClass = 'fpdi-pdf-parser';
+    // dd($pdf) 
+    $pageCount = $pdf->setSourceFile(storage_path('app/2.pdf'));
+    dump($pageCount);
+    $pdf->AddPage();
+    $tplIdx = $pdf->importPage(1);
+    $pdf->useTemplate($tplIdx);
+    
+    $pdf->Image(public_path('images/faster.png'),10,10,-300);
+    $pdf->Output('F', storage_path('app/2a.pdf'));
+    dd(1);
+
+    // $pdf->addPage();
+    // $pdf->useImportedPage($pageId);
+    // $pdf->Image(public_path('images/faster.png'),10,10,-300);
+
+    // $pdf->Output('F', storage_path('app/2a.pdf'));
+
+    // \Notification::send(\App\Models\User::find([1]), new \App\Notifications\InvoicePaid());
+    // dd(\App\Models\User::find(1b));
+
+    // $user = DB::connection('mongodb')->selectGridFSBucket();
+    // dd($user);
+
+    // $pri = file_get_contents(storage_path('tre/t-private.key'));
+    // $pub = file_get_contents(storage_path('tre/t-public.key'));
+    // dd($pri);
+    // dd(file_get_contents(storage_path('app/1.pdf')));
+    // dd(public_path('images/faster.png'));
+    
+
+    $watermark = new \Ajaxray\PHPWatermark\Watermark(storage_path('app/2.pdf'));
+    // Watermark with text
+    $watermark->setPosition(\Ajaxray\PHPWatermark\Watermark::POSITION_TOP_LEFT);
+    $watermark->setOffset(50, 50);
+    // $watermark->setOpacity(.2);
+    // $watermark->setTiled();
+    // dd($watermark);
+    $watermark->withImage(public_path('images/faster.png'), storage_path('app/2n.pdf'));
+
+    dd(true);
+
+    $rsa = new \phpseclib\Crypt\RSA;
+    try {
+        $pubKey = file_get_contents(storage_path('tre/t-public.key'));
+    }
+    catch(\Exception $e) {
+        $pubKey = null;
+    }
+    // dd($pubKey);
+    $rsa->loadKey($pubKey);
+    
+    $data = [
+        'coin' => 'Testnet',
+        'start' => 0,
+        'end' => 10,
+        'account' => 0,
+        'change' => false
+    ];
+    
+    // $plaintext = 'holla';
+    $plaintext = json_encode($data);                
+    $rsa->setEncryptionMode(\phpseclib\Crypt\RSA::ENCRYPTION_PKCS1);
+    $ciphertext = $rsa->encrypt($plaintext);
+    // dd(json_encode([
+    //     'data' => base64_encode($ciphertext),
+    // ]));
+    // echo $rsa->decrypt($ciphertext);
+    // dd($ciphertext);
+    $http = new \GuzzleHttp\Client;
+    try {
+        $brResponse = $http->request('POST', 'http://localhost:4000/api/get_address', [
+            'json' => [
+                'data' => base64_encode($ciphertext),
+            ],
+        ]);
+        // dd('in', $brResponse);
+        dd((json_decode((string) $brResponse->getBody())));
+    } catch (\Exception $e) {
+        dd($e->getMessage());
+    }
+    dd('out');
+    
+    // $chatMessage = new \App\Models\ChatMessage;
+    // // dd($request->file('content'));
+    // $chatMessage->content = $request->file('content');
+    // $chatMessage->save();
+});
+
+// Route::post('/login', 'Home\AuthController@login')->middleware('throttle:50,2', 'googleRecaptcha', 'eventLogger:'.EventLogger::LOGIN);
+Route::post('/login', 'Home\AuthController@login')->middleware('throttle:50,2', 'eventLogger:'.EventLogger::LOGIN);
+Route::post('/login-mobile', 'Home\AuthController@login')->middleware('throttle:50,2', 'eventLogger:'.EventLogger::LOGIN);
+Route::post('/signup', 'Home\AuthController@register')->middleware('throttle:50,2');
+Route::get('/register/verify', 'Home\AuthController@verifyRegistrationCode');
+Route::post('/register/completion', 'Home\AuthController@completeRegistration');
+Route::post('/username/check', 'Home\AuthController@checkUsername');
+Route::post('/password/forgot', 'Home\AuthController@forgotPassword');
+Route::get('/password/token/verify', 'Home\AuthController@verifyPasswordResetToken');
+Route::post('/password/reset', 'Home\AuthController@resetPassword'); 
+
+// Route::get('/countries', 'Home\MiscContoller@getCountries');
+Route::get('/misc', 'Home\MiscContoller@getMiscs');
+// Route::get('/coins', 'Home\MiscContoller@getCoins');
+
+Route::get('/avs/{advertisementId}', 'Home\AdvertisementController@getAdvertisement');
+Route::get('/avs', 'Home\AdvertisementController@getAdvertisements');
+
+Route::get('/forum', 'Home\ForumController@getForumData');
+Route::get('/forum/posts/{forumPostId}/replies', 'Home\ForumController@getForumPostReplies');
+Route::get('/forum/posts/{forumPostId}', 'Home\ForumController@getForumPost');
+Route::get('/forum/meta', 'Home\ForumController@getForumMeta');
+
+Route::get('/trades/{tradeId}/pdf/download', 'Home\TradeController@downloadChatMessagePdf');
+
+Route::get('/faq', 'Home\FAQController@getFAQs');
+Route::get('/faq/{faqTopicId}', 'Home\FAQController@getFAQData');
+
+Route::get('/help', 'Home\HelpController@getHelp');
+Route::get('/tnc', 'Home\TncController@getContents');
+
+Route::middleware(['auth:api'])->group(function () {
+
+    Route::get('/coins/address-validate', 'Home\MiscContoller@validateAddress');
+    
+    Route::post('/logout', 'Home\AuthController@logout')->middleware('throttle:50,2', 'eventLogger:'.EventLogger::LOGOUT);
+
+    Route::post('/trades/{tradeId}/answer', 'Home\TradeController@answerTradeRequest')->middleware('eventLogger:'.EventLogger::TRADE_RESPOND);
+    Route::get('/trades/{tradeId}', 'Home\TradeController@getTrade');
+    Route::get('/trades/{tradeId}/messages', 'Home\TradeController@getTradeMessages');
+    Route::post('/trades/{tradeId}/message', 'Home\TradeController@sendTradeMessage');
+    Route::post('/trades/{tradeId}/buyer-confirmed-payment', 'Home\TradeController@confirmPaymentByBuyer');
+    Route::post('/trades/{tradeId}/seller-recieved-payment', 'Home\TradeController@paymentRecievedBySeller');
+    Route::post('/trades/{tradeId}/seller-release-coin', 'Home\TradeController@releaseCoinBySeller');
+    Route::post('/trades/{tradeId}/buyer-recieved-coin', 'Home\TradeController@coinRecievedByBuyer')->middleware('eventLogger:'.EventLogger::TRADE_COMPLETE);
+    Route::get('/trades/{tradeId}/get-dispute-reasons', 'Home\TradeController@getDisputeReasons');
+    Route::post('/trades/{tradeId}/dispute-called', 'Home\TradeController@disputeCalled')->middleware('eventLogger:'.EventLogger::TRADE_DISPUTE);
+    Route::post('/trades/{tradeId}/cancel', 'Home\TradeController@cancelTrade')->middleware('eventLogger:'.EventLogger::TRADE_CANCEL);
+    Route::get('/trades/{tradeId}/mark-chat-msg-read', 'Home\TradeController@markChatMessageRead');
+    Route::get('/trades/{tradeId}/email-transcript', 'Home\EmailTranscriptController@emailTradeTranscript');
+    Route::get('/trades/{tradeId}/mark-trade-trusted', 'Home\TradeController@markTradeTrusted');
+
+    Route::get('/wallet/recieving-address', 'Home\AccountController@getRecievingAddress');
+    Route::get('/wallet/withdrawal/meta', 'Home\AccountController@getWithdrawalMeta');
+    Route::post('/wallet/withdrawal-request', 'Home\AccountController@createWithdrawalRequest');
+    Route::get('/wallet/transactions', 'Home\AccountController@getTransactions');
+    
+
+    Route::post('/avs/upsert', 'Home\AdvertisementController@upsertAdvertisement')->middleware('eventLogger:'.EventLogger::AD_CREATE);
+    Route::post('/avs/{advertisementId}/respond', 'Home\AdvertisementController@answerAdvertisement')->middleware('eventLogger:'.EventLogger::AD_RESPOND);
+    Route::get('/user/avs', 'Home\AdvertisementController@getUserAdvertisements');
+
+    Route::post('/forum/posts/{forumPostId}/vote', 'Home\ForumController@voteForumPost');
+    Route::post('/forum/posts/{forumPostId}/comment', 'Home\ForumController@addForumPostReply');
+    Route::post('/forum/posts/reply/{forumPostReplyId}/vote', 'Home\ForumController@voteForumPostReply');
+    Route::post('/forum/posts/create', 'Home\ForumController@addForumPost');
+
+    // Route::get('/notifications', 'Home\AdvertisementController@getNotifications');
+    Route::post('/notifications/{notificationId}/mark-read', 'Home\AccountController@markNotificationRead');
+    Route::get('/notifications', 'Home\AccountController@getNotifications');
+
+    Route::get('/meta', 'Home\AccountController@getMetaData');
+
+    Route::get('/disputes/{disputeId}', 'Home\DisputeController@getDisputeChat');
+    Route::post('/disputes/{disputeId}/message', 'Home\DisputeController@disputeChat');
+    Route::get('/disputes/{disputeId}/email-transcript', 'Home\EmailTranscriptController@emailDisputeTranscript');
+    Route::post('/disputes/{disputeId}/feedback', 'Home\DisputeController@createFeedback');
+
+    Route::post('/login/verify', 'Home\AuthController@verifyLogin');
+
+    Route::get('/profile/info','Home\ProfileController@viewSelfProfile');
+    Route::post('/profile/info/update-name','Home\ProfileController@updateName');
+    Route::get('/profile/info/closed-trades','Home\ProfileController@getClosedTrades');
+    Route::get('/profile/info/cancelled-trades','Home\ProfileController@getCancelledTrades');
+    Route::get('/profile/info/disputes','Home\ProfileController@getDisputes');
+    Route::get('/profile/info/avs','Home\ProfileController@getAdvertisements');
+    Route::get('/profile/access-history','Home\ProfileController@getAccessHistory');
+
+
+    Route::post('/profile/change-email','Home\ProfileController@emailReset');
+
+    Route::get('/profile/security', 'Home\ProfileSecurityContoller@getSecurityProfile');
+    Route::post('/profile/security/submit-contact', 'Home\ProfileSecurityContoller@submitContactNo');
+    Route::post('/profile/security/verify-contact-otp', 'Home\ProfileSecurityContoller@verifyContactNo');
+    Route::post('/profile/security/mnemonic', 'Home\ProfileSecurityContoller@createMnemonic');
+    Route::post('profile/security/verification-method', 'Home\ProfileSecurityContoller@updateVerificationMethod');
+    Route::get('/profile/security/verify-gauth-otp', 'Home\ProfileSecurityContoller@verifyGAuth');
+
+    Route::post('/profile/password/reset', 'Home\AccountController@resetPassword');
+
+    Route::get('/challenge/mnemonic-word', 'Home\ChallengeController@createMnemonicWordsChallenge');
+    Route::post('/challenge/mnemonic-word/verify', 'Home\ChallengeController@verifyMnemonicWordsChallenge');
+
+    Route::post('/otp/resend', 'Home\ProfileSecurityContoller@resendOtp');
+    Route::get('tickets/list','Home\TicketController@getTicketLists');
+
+    Route::post('/user/{userId}/report', 'Home\ReportController@reportUser');
+    Route::post('/avs/{advertisementId}/report', 'Home\ReportController@reportAdvertisement')->middleware('eventLogger:'.EventLogger::AD_REPORT);;
+    Route::get('/avs/{advertisementId}/raise-ticket', 'Home\TicketController@createAdvertisementTicket');
+});
+
+Route::post('tickets/post','Home\TicketController@createTicket');
+Route::get('ticket/{ticketId}','Home\TicketController@viewTicketById');
+Route::post('tickets/reply/{ticketId}', 'Home\TicketController@replyToSupport');
+
+Route::get('/profile/{userName}/info','Home\ProfileController@viewOthersProfile');
+
+Route::get('/profile/email-reset-verification/{token}','Home\ProfileController@verifyEmail');
+
+//the callback urls to be hit by node subscriber
+Route::middleware(['client'])->group(function () {
+
+    Route::post('/wallet/deposit', 'Admin\AddressController@depositAmount');
+    Route::post('/address/mark-can-use', 'Admin\AddressController@markAddress');
+
+    //endpoint to be hit when any error/exception occurs during cron/node run
+    Route::post('/error','Admin\LiveErrorsAndExceptionsController@cronError');
+
+});
+
+Route::get('/store-coin', function () {
+    $log = [];
+    foreach (\App\Models\Coin::getActiveCoins() as $key => $coin) {
+        $log[] = "coin {$coin->symbol} #{$coin->id}";
+        $log = array_merge($log, (new \App\Coins\CoinStrategy($coin->symbol))->storeCoin($coin));
+    }
+    
+    $log[] = 'time:'.now();
+    dd($log);
+    $path = 'logs/SC/'.date('Y-m-d').'.json';
+    if (false == Storage::exists($path)) {
+        Storage::put($path, json_encode([$log]));
+    } else {
+        $logs = json_decode(Storage::get($path));
+        array_unshift($logs, $log);
+        Storage::put($path, json_encode($logs));
+    }
+});
+
+Route::get('/transfer-coin', function () {
+
+    $log = [];
+    foreach (\App\Models\Coin::getActiveCoins() as $key => $coin) {
+        $log[] = "coin {$coin->symbol} #{$coin->id}";
+        $log = array_merge($log, (new \App\Coins\CoinStrategy($coin->symbol))->transferCoin($coin));
+    }
+    
+    $log[] = 'time:'.now();
+    dd($log);
+    $path = 'logs/TC/'.date('Y-m-d').'.json';
+    if (false == Storage::exists($path)) {
+        Storage::put($path, json_encode([$log]));
+    } else {
+        $logs = json_decode(Storage::get($path));
+        array_unshift($logs, $log);
+        Storage::put($path, json_encode($logs));
+    }
+});
+
+

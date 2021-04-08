@@ -1,0 +1,64 @@
+<?php
+
+namespace App\Mail;
+
+use Illuminate\Bus\Queueable;
+use Illuminate\Mail\Mailable;
+use Illuminate\Queue\SerializesModels;
+use Illuminate\Contracts\Queue\ShouldQueue;
+
+/**
+ * Used to send Dispute chat transcripts on the users' email
+ * Class EmailDisputeChatMessages
+ * @package App\Mail
+ */
+class EmailDisputeChatMessages extends Mailable
+{
+    use Queueable, SerializesModels;
+
+    protected $filename;
+    protected $tradeId;
+    protected $tradeStartTime;
+    protected $tradeCloseTime;
+    protected $message;
+    protected $disputeId;
+
+    /**
+     * Create a new message instance.
+     *
+     * @return void
+     */
+    public function __construct($filename, $tradeId, $tradeStartTime, $tradeCloseTime, $message, $disputeId)
+    {
+        $this->filename = $filename;
+        $this->tradeId = $tradeId;
+        $this->tradeStartTime = $tradeStartTime;
+        $this->tradeCloseTime = $tradeCloseTime;
+        $this->message = $message;
+        $this->disputeId = $disputeId;
+    }
+
+    /**
+     * Build the message.
+     *
+     * @return $this
+     */
+    public function build()
+    {
+        $email= $this->markdown('emails.dispute_chat_transcript')->with([
+            'tradeId' => $this->tradeId,
+            'filename' => $this->filename,
+            'tradeStartTime' => $this->tradeStartTime,
+            'tradeCloseTime' => $this->tradeCloseTime,
+            'disputeId' => $this->disputeId,
+
+        ])
+            ->attachData($this->message,$this->filename,[
+                'mime'=>'text/plain'
+            ]);
+
+
+        return $email;
+    }
+}
+

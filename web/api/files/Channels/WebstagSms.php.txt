@@ -1,0 +1,26 @@
+<?php
+
+namespace App\Channels;
+
+use Illuminate\Notifications\Notification;
+
+class WebstagSms
+{
+    /**
+     * Send the given notification.
+     *
+     * @param  mixed  $notifiable
+     * @param  \Illuminate\Notifications\Notification  $notification
+     * @return void
+     */
+    public function send($notifiable, Notification $notification)
+    {
+        $message = $notification->toWebstagSms($notifiable);
+        
+        $url = "http://sms.webstag.net/sendSMS?username=".config('services.webstag_sms.username')."&message=".urlencode($message['content'])."&sendername=".config('services.webstag_sms.sender_name')."&smstype=TRANS&numbers={$message['contact']}&apikey=".config('services.webstag_sms.key');
+
+        // dump($url);
+        $response = file_get_contents($url);
+        // dd($response);
+    }
+}

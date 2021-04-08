@@ -1,0 +1,68 @@
+<?php
+
+namespace App\Http\Controllers\Home;
+
+use Illuminate\Http\Request;
+use App\Http\Controllers\Controller;
+use App\Models\HelpTopic;
+use App\Models\HelpSubTopic;
+
+class HelpController extends Controller
+{
+    /*public function getFAQs(Request $request)
+    {
+        $FAQ = FaqTopic::getTopics();
+        foreach ($FAQ as $key => $faq) {
+            $faq->data = [];
+        }
+        $FAQ->load(['data']);
+
+        return response()->api(true, 'Success', $FAQ);
+    }
+
+    public function getFAQData($faqTopicId, Request $request)
+    {
+        return response()->api(true, 'Success', Faq::getByFAQTitle($faqTopicId));
+    }*/
+
+    /**
+     * Gets active main topics and their sub topics
+     *
+     * @param Request $request
+     * @return mixed
+     */
+    public function getHelp(Request $request)
+    {
+        /*$helpData=[];
+        $helpTopics=HelpTopic::getActiveTopics();
+        foreach($helpTopics as $top){
+            $subTopics=HelpSubTopic::getSubTopicsByMainTopicId($top->id);
+            array_push($helpData,array(
+                'title_id'=>$top->id,
+                'title'=>$top->topic,
+                'title_url'=>$top->url,
+                'subtopic'=>$subTopics
+            ));
+        }
+        return response()->api(true, 'Success', $helpData);*/
+
+        $helpData = [];
+        $helpTopics = HelpTopic::getActiveTopics();
+
+        $helpSubTopics = HelpSubTopic::active()->get();
+
+        $grouped = $helpSubTopics->groupBy('help_topic_id');
+        //dd($grouped->toArray());
+
+        foreach ($helpTopics as $topic) {
+            if ( ! empty($grouped[$topic->id])) {
+                $topic->subtopics = $grouped[$topic->id];
+            }
+        }
+
+        //dd($helpTopics);
+        return response()->api(true, 'Success', $helpTopics);
+
+    }
+}
+

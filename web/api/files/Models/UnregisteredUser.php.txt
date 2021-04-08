@@ -1,0 +1,66 @@
+<?php
+
+namespace App\Models;
+
+use App\Models\Model;
+
+class UnregisteredUser extends Model
+{
+    protected $dates = ['code_valid_till'];
+
+    //is registration complete 0 or 1
+    const REGISTRATION_COMPLETE = 1;
+    const REGISTRATION_INCOMPLETE = 0;
+
+    /*Create Queries Start*/
+    public static function createUser($data)
+    {
+        $user = new self;
+
+        $user->username = $data['username'];
+        $user->email = $data['email'];
+        $user->country_id = $data['country_id'];
+        $user->registration_code = $data['registration_code'];
+        $user->code_valid_till = $data['code_valid_till'];
+        $user->is_registration_complete = $data['is_registration_complete'];
+        $user->status = $data['status'];
+        $user->save();
+
+        return $user->id;
+    }
+    /*Create Queries End*/
+
+    /*Find Queries Start*/
+    public static function findByUsername($username)
+    {
+        return self::where('username', $username)->first();
+    }
+
+    public static function findByEmail($email)
+    {
+        return self::where('email', $email)->first();
+    }
+
+    public static function findByCode($code)
+    {
+        return self::where('registration_code', $code)
+            ->where('code_valid_till', '>', now())
+            ->where('is_registration_complete', self::REGISTRATION_INCOMPLETE)
+            ->first();
+    }
+    /*Find Queries End*/
+
+    /*Get Queries Start*/
+    public static function getUnregisteredUsers()
+    {
+        return self::join('countries As c', 'c.id', '=',
+            'unregistered_users.country_id')
+            ->select(
+                'unregistered_users.*',
+                'c.name As country_name'
+            )
+            ->where('is_registration_complete', self::REGISTRATION_INCOMPLETE)->get();
+    }
+    /*Get Queries End*/
+}
+

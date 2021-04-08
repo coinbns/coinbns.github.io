@@ -1,0 +1,73 @@
+<?php
+
+namespace App\Models;
+
+use App\Models\Model;
+
+class PaymentMethod extends Model
+{
+
+    //global payment method which applies to all countries
+    const GLOBAL=0;
+
+    /*Create Queries Start*/
+    public static function createMethod($data)
+    {
+        $method = new self;
+
+        $method->name = $data['name'];
+        $method->country_id = $data['country_id'];
+        return $method->save();
+    }
+    /*Create Queries End*/
+
+    /*Find Queries Start*/
+    public static function findGlobalMethod($method)
+    {
+        return self::where([
+            'country_id' => self::GLOBAL,
+            'name' => $method
+        ])->first();
+    }
+
+    public static function findByCountryByMethod($countryId, $method)
+    {
+        return self::where([
+            'country_id' => $countryId,
+            'name' => $method
+        ])->first();
+    }
+
+    public static function findById($methodId)
+    {
+        return self::where('id', $methodId)->first();
+    }
+    /*Find Queries End*/
+
+    /*Get Queries Start*/
+    public static function getPaymentMethodsSlim()
+    {
+        return self::leftjoin('countries', 'countries.id', '=', 'payment_methods.country_id')
+            ->select(
+                'payment_methods.id',
+                'payment_methods.name As method_name',
+                'payment_methods.status',
+                'payment_methods.country_id',
+                'countries.name As country_name'
+            )->orderBy('payment_methods.country_id', 'ASC')->get();
+    }
+
+    public static function getActivePaymentMethods()
+    {
+        return self::active()->get();
+    }
+    /*Get Queries End*/
+
+    /*Update Queries Start*/
+    public static function updateMethod($methodId, $data)
+    {
+        return self::where('id', $methodId)->update($data);
+    }
+    /*Update Queries End*/
+}
+

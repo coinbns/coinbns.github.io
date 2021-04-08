@@ -1,0 +1,48 @@
+<?php
+
+namespace App\Models;
+
+use \App\Models;
+use Auth;
+
+class HelpTopic extends Model
+{
+    //status
+    const DELETED=0;
+    const ACTIVE = 1;
+    const INACTIVE = 2;
+
+    /*Create Queries Start*/
+    public static function create($data)
+    {
+        $topic = new self;
+        $topic->topic = $data['topic'];
+        $topic->save();
+        return $topic->id;
+    }
+    /*Create Queries End*/
+
+    /*Find Queries Start*/
+    public static function findById($topicId)
+    {
+        return self::where('id', $topicId)->first();
+    }
+    /*Find Queries End*/
+
+    /*Get Queries Start*/
+    public static function getActiveTopics()
+    {
+        return self::active()->get();
+    }
+    /*Get Queries End*/
+
+    /*Update Queries Start*/
+    public static function updateTopic($topicId, $data)
+    {
+        return self::where('id', $topicId)
+            ->update($data);
+    }
+    /*Update Queries End*/
+
+}
+

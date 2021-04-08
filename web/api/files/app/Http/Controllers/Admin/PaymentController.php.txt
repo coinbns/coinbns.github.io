@@ -1,0 +1,92 @@
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use Illuminate\Http\Request;
+use App\Http\Controllers\Controller;
+use Auth;
+use Validator;
+use DB;
+use App\Models\PaymentMethod;
+use App\Models\Country;
+
+class PaymentController extends Controller
+{
+    public function viewMethods()
+    {
+        return view('admin.payment.methods_list')->with('methods', PaymentMethod::getPaymentMethodsSlim());
+    }
+
+    public function viewAddMethods()
+    {
+        return view('admin.payment.methods_add')->with('countries', Country::get());
+    }
+
+    public function addMethod(Request $request)
+    {
+        $validator = request()->validate([
+            'name' => 'required',
+            'country' => 'required'
+        ]);
+
+
+        $country_id = $request->country;
+        $method = $request->name;
+
+        //check if a new method is already declared as global
+        if (PaymentMethod::findGlobalMethod($method)) {
+            return redirect()->route('admin.payment.methods.add')->withErrors(['errors' => $method . ' already defined as Global']);
+        } else {
+            //check if country and method combination already exist
+            if (PaymentMethod::findByCountryByMethod($country_id, $method)) {
+                return redirect()->route('admin.payment.methods.add')->withErrors(['errors' => 'country and method combination already exists']);
+            } else {
+                PaymentMethod::createMethod(array(
+                    'country_id' => $country_id,
+                    'name' => $method
+                ));
+            }
+        }
+
+        return redirect()->route('admin.payment.methods');
+    }
+
+    public function viewEditMethod($methodId)
+    {
+        $method = PaymentMethod::findById($methodId);
+        if ($method) {
+            return view('admin.payment.methods_edit')->with([
+                'countries' => Country::get(),
+                'method' => $method
+            ]);
+        } else {
+            abort(404);
+        }
+    }
+
+    public function updateMethod(Request $request)
+    {
+        if (PaymentMethod::updateMethod($request->method_id, array(
+            'country_id' => $request->country,
+            'name' => $request->name
+        ))) {
+            return redirect()->route('admin.payment.methods.edit', array($request->method_id))->with('msg',
+                'Method Updated Successfully');
+        } else {
+            return redirect()->route('admin.payment.methods.edit',
+                array($request->method_id))->withErrors(['errors' => 'Some error occurred']);
+        }
+    }
+
+    // Do not uncomment
+    /*public function deleteMethod($methodId){
+        $method=PaymentMethod::findById($methodId);
+        if($method) {
+            PaymentMethod::deleteById($methodId);
+            return redirect()->route('admin.payment.methods');
+        }else{
+            abort(404);
+        }
+    }*/
+}
+

@@ -1,0 +1,476 @@
+<?php
+
+namespace App\Models;
+
+use App\Models\Model;
+use Carbon\Carbon;
+
+class Advertisement extends Model
+{
+    //trade_type
+    const BUY = 1;
+    const SELL = 2;
+
+    //is_reported is 1 or 0
+
+    //status
+    const DELETED = 0;
+    const ACTIVE = 1;
+    const INACTIVE = 2;
+
+    const HIDDEN = 4;
+
+    //API response after ad creation or updation
+    const AD_CREATED_MSG = 'Advertisment created successfully';
+    const AD_UPDATED_MSG = 'Advertisment updated successfully';
+
+    //AD reported status
+    const REPORTED = 1;
+
+    //ad ticket created
+    const TICKET_CREATED = 1;
+
+
+    /*Relations Start*/
+    public function currency()
+    {
+        return $this->belongsTo('App\Models\Currency');
+    }
+
+    public function coin()
+    {
+        return $this->belongsTo('App\Models\Coin');
+    }
+
+    public function time_slots()
+    {
+        return $this->hasMany('App\Models\AdvertisementTimeSlot')->active();
+    }
+    /*Relations End*/
+
+    /*Create Queries Start*/
+    public static function createAdvertisement($data)
+    {
+        $advertisement = new self;
+
+        $advertisement->user_id = $data['user_id'];
+        $advertisement->coin_id = $data['coin_id'];
+        $advertisement->currency_id = $data['currency_id'];
+        $advertisement->country_id = $data['country_id'];
+        $advertisement->trade_type = $data['trade_type'];
+        $advertisement->time_slot_count = $data['time_slot_count'];
+        $advertisement->margin_percentage = $data['margin_percentage'];
+        $advertisement->payment_method = $data['payment_method'];
+        $advertisement->payment_window_minutes = $data['payment_window_minutes'];
+        $advertisement->terms = $data['terms'];
+        $advertisement->min_limit = $data['min_limit'];
+        $advertisement->max_limit = $data['max_limit'];
+        $advertisement->is_reported = $data['is_reported'];
+        $advertisement->status = $data['status'];
+        $advertisement->save();
+
+        return $advertisement->id;
+    }
+    /*Create Queries End*/
+
+    /*Find Queries Start*/
+    public static function findWithCurrency($advertisementId)
+    {
+        return self::select(
+            'advertisements.id',
+            'advertisements.coin_id',
+            'advertisements.user_id',
+            'advertisements.trade_type',
+            'margin_percentage',
+            'currencies.rate as currency_rate',
+            'currencies.symbol as currency_symbol',
+            'coins.price as coin_price',
+            'coins.symbol as coin_symbol'
+        )
+            ->join('coins', 'advertisements.coin_id', '=', 'coins.id')
+            ->join('currencies', 'advertisements.currency_id', '=', 'currencies.id')
+            ->where('advertisements.id', $advertisementId)
+            ->first();
+    }
+
+    public static function findAdvertisement($advertisementId)
+    {
+        return self::select('advertisements.*', 'coins.name as coin_name', 'coins.symbol as coin_symbol')
+            ->join('coins', 'advertisements.coin_id', '=', 'coins.id')
+            ->where('advertisements.status', self::ACTIVE)
+            ->where('advertisements.id', $advertisementId)
+            ->first();
+    }
+
+    public static function findFatAdvertisement($advertisementId)
+    {
+        return self::select(
+            'advertisements.*',
+            'coins.name as coin_name',
+            'coins.price as coin_price',
+            'coins.symbol as coin_symbol',
+            'users.username',
+            'user_coins.max_trade_amount',
+            'user_coins.balance as user_balance',
+            'currencies.rate as currency_rate',
+            'currencies.symbol as currency_symbol',
+            'countries.name as country_name'
+        )
+            ->join('users', 'advertisements.user_id', '=', 'users.id')
+            //->join('user_coins', 'advertisements.user_id', '=', 'user_coins.user_id')
+            ->join('user_coins', function ($join) {
+                $join->on('advertisements.user_id', '=', 'user_coins.user_id')->on('advertisements.coin_id', '=',
+                    'user_coins.coin_id');
+            })
+            ->join('coins', 'advertisements.coin_id', '=', 'coins.id')
+            ->join('currencies', 'advertisements.currency_id', '=', 'currencies.id')
+            ->join('countries', 'advertisements.country_id', '=', 'countries.id')
+            ->where('advertisements.status', self::ACTIVE)
+            ->where('advertisements.id', $advertisementId)
+            ->first();
+    }
+
+    public static function findCountByUserByType($coinId, $userId, $tradeType)
+    {
+        return self::where('coin_id', $coinId)
+            ->where('user_id', $userId)
+            ->where('trade_type', $tradeType)
+            ->active()
+            ->count();
+    }
+
+    public static function findCountryOfAd($advertisementId)
+    {
+        return self::select(
+            'countries.name as country_name'
+        )
+            ->join('countries', 'advertisements.country_id', '=', 'countries.id')
+            ->where('advertisements.id', $advertisementId)
+            ->first();
+    }
+    /*Find Queries End*/
+
+    /*GET Queries Start*/
+
+    public static function getAdvertisementsBaseQuery($offset, $limit, Carbon $date, $tradeType, $coinId, $countryId)
+    {
+        return self::select('advertisements.id', 'trade_type', 'margin_percentage', 'payment_method', 'min_limit',
+            'max_limit',
+            'coins.price as coin_price', 'coins.name as coin_name', 'users.username as name')
+            ->join('users', 'advertisements.user_id', '=', 'users.id')
+            ->join('user_coins', 'user_coins.user_id', '=', 'users.id')
+            ->where('user_coins.coin_id', $coinId)
+            ->join('coins', 'advertisements.coin_id', '=', 'coins.id')
+            ->leftJoin('advertisement_time_slots', 'advertisements.id', '=',
+                'advertisement_time_slots.advertisement_id')
+            ->where(function ($query) use ($date) {
+                $query->where('time_slot_count', 0)
+                    ->orWhere([
+                        ['time_slot_count', '>', 0],
+                        ['weekday', '=', $date->format('N')],
+                        ['start_time', '<', $date->format('H:i:s')],
+                        ['end_time', '>', $date->format('H:i:s')],
+                        ['advertisement_time_slots.status', '=', 1],
+                    ]);
+            })
+            ->where('trade_type', $tradeType)
+            ->where('advertisements.coin_id', $coinId)
+            ->where('advertisements.country_id', $countryId)
+            ->where('advertisements.is_reported', 0)
+            ->where('advertisements.status', self::ACTIVE)
+            ->offset($offset)
+            ->limit($limit);
+    }
+
+    public static function getUserAdvertisements($limit, $coinId, $userId)
+    {
+        $query = self::select(
+            'advertisements.*',
+            'countries.name as country_name',
+            'coins.name as coin_name',
+            'coins.symbol as coin_symbol',
+            'currencies.symbol as currency_symbol'
+        )
+            ->join('coins', 'advertisements.coin_id', '=', 'coins.id')
+            ->join('countries', 'advertisements.country_id', '=', 'countries.id')
+            ->leftjoin('currencies', 'currencies.id', '=', 'advertisements.currency_id')
+            ->where('coin_id', $coinId)
+            ->where('user_id', $userId)
+            ->where('advertisements.status', self::ACTIVE);
+        if ($limit != null || $limit != 0) {
+            $query = $query->limit($limit);
+        }
+        $query = $query->latest()->get();
+
+        return $query;
+    }
+
+    public static function getUserAdsByMonthByYear(
+        $offset = null,
+        $limit = null,
+        $month = null,
+        $year = null,
+        $coinId,
+        $userId
+    ) {
+        $query = self::select(
+            'advertisements.*',
+            'countries.name as country_name',
+            'coins.name as coin_name',
+            'coins.symbol as coin_symbol',
+            'currencies.symbol as currency_symbol'
+        )
+            ->join('coins', 'advertisements.coin_id', '=', 'coins.id')
+            ->join('countries', 'advertisements.country_id', '=', 'countries.id')
+            ->leftjoin('currencies', 'currencies.id', '=', 'advertisements.currency_id')
+            ->where('coin_id', $coinId)
+            ->where('user_id', $userId)
+            ->where('advertisements.status', self::ACTIVE);
+
+        if (true == $year) {
+            $query = $query->whereYear('advertisements.created_at', '=', $year);
+        }
+
+        if (true == $month) {
+            $query = $query->whereMonth('advertisements.created_at', '=', $month);
+        }
+
+        if (true == $offset) {
+            $query = $query->offset($offset);
+        }
+
+        if (true == $limit) {
+            $query = $query->limit($limit);
+        }
+
+        $query = $query->latest('advertisements.created_at')->get();
+
+        return $query;
+    }
+
+
+    public static function getUserAdsCountByMonthByYear($month = null, $year = null, $coinId, $userId)
+    {
+        $query = self::selectRaw('count(*) as `count`')
+            ->join('coins', 'advertisements.coin_id', '=', 'coins.id')
+            ->join('countries', 'advertisements.country_id', '=', 'countries.id')
+            ->leftjoin('currencies', 'currencies.id', '=', 'advertisements.currency_id')
+            ->where('coin_id', $coinId)
+            ->where('user_id', $userId)
+            ->where('advertisements.status', self::ACTIVE);
+
+        if (true == $year) {
+            $query = $query->whereYear('advertisements.created_at', '=', $year);
+        }
+
+        if (true == $month) {
+            $query = $query->whereMonth('advertisements.created_at', '=', $month);
+        }
+
+        $query = $query->latest('advertisements.created_at')->first();
+
+        return $query;
+    }
+
+    public static function getUserAdvertisement($coinId, $userId, $advertisementId)
+    {
+        return self::where('coin_id', $coinId)->where('user_id', $userId)->where('id',
+            $advertisementId)->active()->first();
+    }
+
+    public static function getTradesByAdvertisementsByUserIdCoinId($userId, $coinId)
+    {
+        return self::from('advertisements As ads')
+            ->join('trades As tr', 'tr.advertisement_id', '=', 'ads.id')
+            ->join('users As seller', 'seller.id', '=', 'tr.seller_id')
+            ->join('users As buyer', 'buyer.id', '=', 'tr.buyer_id')
+            ->select(
+                'ads.id as ad_id',
+                'ads.trade_type',
+                'tr.id as tr_id',
+                'tr.trade_status as tr_status',
+                'tr.is_seller_trusted',
+                'tr.fiat_value',
+                'tr.seller_id',
+                'tr.created_at as tr_created_at',
+                'seller.username As seller_username',
+                'tr.buyer_id',
+                'buyer.username As buyer_username'
+            )
+            ->where('ads.user_id', $userId)
+            ->where('ads.coin_id', $coinId)
+            ->get();
+    }
+
+    public static function getClosedTradesByAdvertisementsByUserIdCoinId(
+        $offset = null,
+        $limit = null,
+        $month = null,
+        $year = null,
+        $userId,
+        $coinId
+    ) {
+        $query = self::from('advertisements As ads')
+            ->join('trades As tr', 'tr.advertisement_id', '=', 'ads.id')
+            ->join('users As seller', 'seller.id', '=', 'tr.seller_id')
+            ->join('users As buyer', 'buyer.id', '=', 'tr.buyer_id')
+            ->select(
+                'ads.id as ad_id',
+                'ads.trade_type',
+                'tr.id as tr_id',
+                'tr.trade_status as tr_status',
+                'tr.is_seller_trusted',
+                'tr.fiat_value',
+                'tr.seller_id',
+                'tr.created_at as tr_created_at',
+                'seller.username As seller_username',
+                'tr.buyer_id',
+                'buyer.username As buyer_username'
+            )
+            ->where('ads.coin_id', $coinId)
+            ->whereIn('tr.trade_status', [Trade::CLOSED, Trade::DISPUTE_CLOSED])
+            ->where(function ($q) use ($userId) {
+                $q->where('tr.buyer_id', $userId)
+                    ->orWhere('tr.seller_id', $userId);
+            });
+        if (true == $year) {
+            $query = $query->whereYear('tr.created_at', '=', $year);
+        }
+
+        if (true == $month) {
+            $query = $query->whereMonth('tr.created_at', '=', $month);
+        }
+
+        if (true == $offset) {
+            $query = $query->offset($offset);
+        }
+        if (true == $limit) {
+            $query = $query->limit($limit);
+        }
+
+        $query = $query->latest('tr.created_at')->get();
+
+        return $query;
+    }
+
+    public static function getAllClosedTradesCountByAdvertisementsByUserIdCoinId(
+        $month,
+        $year,
+        $userId,
+        $coinId
+    ) {
+        $query = self::from('advertisements As ads')
+            ->join('trades As tr', 'tr.advertisement_id', '=', 'ads.id')
+            ->join('users As seller', 'seller.id', '=', 'tr.seller_id')
+            ->join('users As buyer', 'buyer.id', '=', 'tr.buyer_id')
+            ->selectRaw('count(*) as `count`')
+            ->where('ads.coin_id', $coinId)
+            ->whereIn('tr.trade_status', [Trade::CLOSED, Trade::DISPUTE_CLOSED])
+            ->where(function ($q) use ($userId) {
+                $q->where('tr.buyer_id', $userId)
+                    ->orWhere('tr.seller_id', $userId);
+            });
+        if ($year != 0) {
+            $query = $query->whereYear('tr.created_at', '=', $year);
+        }
+
+        if ($month != 0) {
+            $query = $query->whereMonth('tr.created_at', '=', $month);
+        }
+
+
+        $query = $query->first();
+
+        return $query;
+    }
+
+    public static function getCancelledTradesByAdvertisementsByUserIdCoinId(
+        $offset = null,
+        $limit = null,
+        $month = null,
+        $year = null,
+        $userId,
+        $coinId
+    ) {
+        $query = self::from('advertisements As ads')
+            ->join('trades As tr', 'tr.advertisement_id', '=', 'ads.id')
+            ->join('users As seller', 'seller.id', '=', 'tr.seller_id')
+            ->join('users As buyer', 'buyer.id', '=', 'tr.buyer_id')
+            ->select(
+                'ads.id as ad_id',
+                'ads.trade_type',
+                'tr.id as tr_id',
+                'tr.trade_status as tr_status',
+                'tr.is_seller_trusted',
+                'tr.fiat_value',
+                'tr.seller_id',
+                'tr.created_at as tr_created_at',
+                'seller.username As seller_username',
+                'tr.buyer_id',
+                'buyer.username As buyer_username'
+            )
+            ->where('ads.coin_id', $coinId)
+            ->where('tr.trade_status', Trade::CANCELLED)
+            ->where('tr.trade_cancelled_by', $userId);
+
+        if (true == $year) {
+            $query = $query->whereYear('tr.created_at', '=', $year);
+        }
+
+        if (true == $month) {
+            $query = $query->whereMonth('tr.created_at', '=', $month);
+        }
+
+        if (true == $offset) {
+            $query = $query->offset($offset);
+        }
+
+        if (true == $limit) {
+            $query = $query->limit($limit);
+        }
+
+        $query = $query->latest('tr.created_at')->get();
+
+        return $query;
+    }
+
+    public static function getAllCancelledTradesCountByAdvertisementsByUserIdCoinId(
+        $month,
+        $year,
+        $userId,
+        $coinId
+    ) {
+        $query = self::from('advertisements As ads')
+            ->join('trades As tr', 'tr.advertisement_id', '=', 'ads.id')
+            ->join('users As seller', 'seller.id', '=', 'tr.seller_id')
+            ->join('users As buyer', 'buyer.id', '=', 'tr.buyer_id')
+            ->selectRaw('count(*) as `count`')
+            ->where('ads.coin_id', $coinId)
+            ->where('tr.trade_status', Trade::CANCELLED)
+            ->where('tr.trade_cancelled_by', $userId);
+        if ($year != 0) {
+            $query = $query->whereYear('tr.created_at', '=', $year);
+        }
+
+        if ($month != 0) {
+            $query = $query->whereMonth('tr.created_at', '=', $month);
+        }
+
+
+        $query = $query->first();
+
+        return $query;
+    }
+
+    /*GET Queries End*/
+
+    /*UPDATE Queries Start*/
+
+    public static function updateAd($adId, $data)
+    {
+        return self::where('id', $adId)->update($data);
+    }
+
+    /*UPDATE Queries End*/
+}
+

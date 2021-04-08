@@ -1,0 +1,62 @@
+<?php
+
+namespace App\Models;
+
+use App\Models\Model;
+
+class Currency extends Model
+{
+    const BASE_CURRENCY='USD';
+
+    //status
+    const DELETED=0;
+    const ACTIVE = 1;
+    const INACTIVE = 2;
+
+    /*Create Queries Start*/
+    public static function createCurrency($data)
+    {
+        $currency = new self;
+
+        $currency->name = $data['name'];
+        $currency->symbol = $data['symbol'];
+        $currency->code = $data['code'];
+        $currency->code_native = $data['code_native'];
+        $currency->rate = $data['rate'];
+        return $currency->save();
+    }
+    /*Create Queries End*/
+
+    /*Find Queries Start*/
+    public static function findBaseCurrency()
+    {
+        return self::where('symbol', self::BASE_CURRENCY)->first();
+    }
+    public static function findById($currencyId)
+    {
+        return self::where('id', $currencyId)->first();
+    }
+    public static function findLastUpdatedCurrency()
+    {
+        return self::select('updated_at')
+            ->limit(1)
+            ->orderBy('updated_at', 'desc')
+            ->first();
+    }
+    /*Find Queries End*/
+
+    /*Update Queries Start*/
+    public static function updateCurrency($currencyId, $data)
+    {
+        return self::where('id', $currencyId)->update($data);
+    }
+    public static function updateRateBySymbol($rate, $symbol)
+    {
+        return self::where('symbol', $symbol)
+            ->update([
+                'rate' => $rate
+            ]);
+    }
+    /*Update Queries End*/
+}
+

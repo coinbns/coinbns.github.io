@@ -1,0 +1,60 @@
+<?php
+
+namespace App\Console\Commands;
+
+use App\Coins\CoinStrategy;
+use App\Models\Coin;
+use Illuminate\Console\Command;
+use Storage;
+
+class StoreCoinCommand extends Command
+{
+    /**
+     * The name and signature of the console command.
+     *
+     * @var string
+     */
+    protected $signature = 'coin:store';
+
+    /**
+     * The console command description.
+     *
+     * @var string
+     */
+    protected $description = 'Command to transfer coins to storage addresses';
+
+    /**
+     * Create a new command instance.
+     *
+     * @return void
+     */
+    public function __construct()
+    {
+        parent::__construct();
+    }
+
+    /**
+     * Execute the console command.
+     *
+     * @return mixed
+     */
+    public function handle()
+    {
+        $log = [];
+        foreach (Coin::getActiveCoins() as $key => $coin) {
+            $log[] = "coin {$coin->symbol} #{$coin->id}";
+            $log = array_merge($log, (new CoinStrategy($coin->symbol))->storeCoin($coin));
+        }
+
+        $log[] = 'time:' . now();
+        $path = 'logs/SC/' . date('Y-m-d') . '.json';
+        if (false == Storage::exists($path)) {
+            Storage::put($path, json_encode([$log]));
+        } else {
+            $logs = json_decode(Storage::get($path));
+            array_unshift($logs, $log);
+            Storage::put($path, json_encode($logs));
+        }
+    }
+}
+

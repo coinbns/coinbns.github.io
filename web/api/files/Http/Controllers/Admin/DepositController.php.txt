@@ -1,0 +1,124 @@
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use Illuminate\Http\Request;
+use App\Http\Controllers\Controller;
+use App\Models\Coin;
+use App\Models\PublicAddress;
+use App\Models\Transaction;
+use App\Models\TransactionLog;
+use App\Models\UserCoin;
+use Validator;
+
+class DepositController extends Controller
+{
+    public function viewDepositePage()
+    {
+        return view('admin.deposit.view')->with('coins', Coin::get());
+    }
+
+    public function search(Request $request)
+    {
+
+        $validator = Validator::make($request->all(), [
+            'user_credential' => 'required',
+            'coin' => 'required'
+        ]);
+        if ($validator->fails()) {
+            return response()->json(array('success' => false, 'error' => $validator->errors()->all()));
+        }
+        /*
+         * user_credential may be an username or an user id,
+         * search accordingly
+         */
+        $userCredential = $request->user_credential;
+        $coinId = $request->coin;
+        $userResult = PublicAddress::getByUsernameOrUserIdAndCoinId($userCredential, $coinId);
+        if (is_null($userResult) || $userResult->count() == 0) {
+            return response()->json(array('success' => false, 'error' => 'No matching records found'));
+        } else {
+            if ($userResult->count() == 1) {
+                $resultArray = $userResult->toArray();
+                return response()->json(array(
+                    'success' => true,
+                    'count' => $userResult->count(),
+                    'user_id' => $resultArray[0]['user_id'],
+                    'coin' => $resultArray[0]['symbol']
+                ));
+            } else {
+                $returnHTML = view('admin.deposit.multiple_search_results')->with('userResult', $userResult)->render();
+                return response()->json(array(
+                    'success' => true,
+                    'count' => $userResult->count(),
+                    'html' => $returnHTML
+                ));
+            }
+        }
+    }
+
+    public function redirectAfterSuccessfulSearch($userId, $coin)
+    {
+        $coin = Coin::findBySymbol($coin);
+        if (is_null($coin)) {
+            abort(404);
+        }
+        $coinId = $coin->id;
+
+        $userResult = PublicAddress::findByUserIdAndCoinId($userId, $coinId);
+        if (is_null($userResult)) {
+            abort(404);
+        }
+        return view('admin.deposit.add_transaction_form')->with('userResult', $userResult);
+    }
+
+    public function deposit(Request $request, $userId, $coinId, $publicAddress)
+    {
+        if ($request->user_id != $userId) {
+            return response(view('admin.errors.injection'), 403);
+        }
+        if ($request->coin_id != $coinId) {
+            return response(view('admin.errors.injection'), 403);
+        }
+        if ($request->public_address_id != $publicAddress) {
+            return response(view('admin.errors.injection'), 403);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'amount' => 'required',
+            'transaction_id' => 'required',
+            'vout' => 'required'
+        ]);
+        //update public address as is_used=1
+
+        $publicAddress = PublicAddress::findUnUsedAddressByUserIdAndCoinId($userId, $coinId);
+        $publicAddress->is_used = 1;
+        $publicAddress->update();
+
+        $manualTransactionId = Transaction::createTransaction(array(
+            'user_id' => $userId,
+            'coin_id' => $coinId,
+            'amount' => $request->amount,
+            'public_address_id' => $publicAddress,
+            'v_out' => $request->vout,
+            'tx_id' => $request->transaction_id,
+            'trade_id' => '0',
+            'type' => Transaction::DEPOSIT,
+            'fees' => '0',
+            'is_transacted' => '0',
+            'is_stored' => '1',
+            'status' => 1
+        ));
+
+        $transactionLog = TransactionLog::createLog(array(
+            'user_id' => $userId,
+            'transaction_id' => $manualTransactionId,
+            'description' => 'Manually Added',
+            'created_at' => now(),
+            'status' => TransactionLog::ACTIVE,
+        ));
+        $balance = Transaction::getBalance($coinId, $userId);
+        UserCoin::updateBalance($coinId, $userId, $balance);
+    }
+}
+

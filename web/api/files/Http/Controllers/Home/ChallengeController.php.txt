@@ -1,0 +1,601 @@
+<?php
+
+namespace App\Http\Controllers\Home;
+
+use Auth;
+use Hash;
+use Validator;
+use App\Http\Controllers\Controller;
+use App\Notifications\ChallengeOtp;
+use App\Models\AuthorizationChallenge;
+use App\Models\UserMnemonicWord;
+use App\Models\UserMnemonic;
+use App\Models\UserAccessLog;
+use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
+use PragmaRX\Google2FA\Google2FA;
+
+/**
+ * Controller to manage mnemonic word challenges
+ *
+ * Class ChallengeController
+ * @package App\Http\Controllers\Home
+ */
+class ChallengeController extends Controller
+{
+    /**
+     * Used to create challenge to user for the events like password reset, withdrawal requests etc.
+     * Events are defined and used as the complexity.
+     *
+     * 1. Finds the ACTIVE challenge of the user by complexity.
+     *
+     * 2. If challenge is not found then create a challenge for specified complexity.
+     *
+     * 3. check challenge_type
+     *
+     * 4.1.1. Sets challenge INACTIVE if challenge_status is `PASSED` or `TIMED_OUT` then create a another challenge for specified complexity
+     *
+     * 4.1.2. If challenge_status is `PENDING` then proceed further.
+     *
+     * 4.1.3. If mnemonics words are set then find the total number of words otherwise give error
+     *
+     * 4.1.4. Generate an array of random numbers by the complexity, save in database and return it to the user.
+     *
+     * 4.1.5. In UI, user will be asked to enter words in textboxes in said number of position.
+     * 
+     * 4.2.1. same as 4.1.1
+     *
+     * 4.2.2. same as 4.1.2
+     *
+     * 4.2.3. create a challenge of the specified type
+     * 
+     * @param Request $request
+     * @return mixed
+     */
+    public function createChallenge(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'complexity' => 'required',
+            // 'challenge_type' => [
+            //     'required',
+            //     'integer',
+            //     Rule::in($this->getAllChallengeTypes()),
+            // ],
+        ]);
+        if ($validator->fails()) {
+            return response()->api(false, implode(', ', $validator->errors()->all()), null);
+        }
+        
+        
+        $complexity = $request->complexity;
+        if (in_array($complexity, [
+            AuthorizationChallenge::FORGET_PASSWORD_COMPLEXITY, AuthorizationChallenge::EMAIL_RESET_COMPLEXITY
+        ])) {
+            $verificationMethod = AuthorizationChallenge::MNEMONIC_CHALLENGE;
+        } else {
+            $verificationMethod = Auth::user()->security_profile->default_verification_method;
+        }
+        $challenge = AuthorizationChallenge::findByUserIdByTypeByComplexity(Auth::id(), $verificationMethod, $complexity);
+        // switch ($request->challenge_type) {
+        switch ($verificationMethod) {
+            case AuthorizationChallenge::MNEMONIC_CHALLENGE:
+                if (true == empty($challenge)) {
+                    return $this->createWordChallenge(Auth::id(), $complexity);
+                }
+        
+                switch ($challenge->challenge_status) {
+                    case AuthorizationChallenge::PASSED:
+                        if (now()->gt($challenge->valid_till)) {
+                            $challenge->status = AuthorizationChallenge::INACTIVE;
+                            $challenge->save();
+        
+                            return $this->createWordChallenge(Auth::id(), $complexity);
+                        }
+                        $this->complexityCheck($request->complexity, Auth::user());
+                        return $this->challengePassedResponse();
+                        break;
+                    case AuthorizationChallenge::PENDING:
+                        $totalMnemonicWords = UserMnemonicWord::countUserMnemonicWords(Auth::id());
+                        if ($totalMnemonicWords == 0) {
+                            return response()->api(false, 'Mneumonic is not set', null);
+                        }
+                        $numbers = randomNumGenerator(1, $totalMnemonicWords + 1, config('app.mnemonic_challenge_word_limit'));
+                        $words = UserMnemonicWord::getByUserByNumbers($numbers, Auth::id());
+                        $previewNumbers = array_slice($numbers, 0, floor($complexity));
+
+                        $challenge->numbers = json_encode($previewNumbers);
+                        $challenge->save();
+                        return response()->api(true, 'Challenge created successfully', [
+                            'success' => null,
+                            'challenge_type' => AuthorizationChallenge::MNEMONIC_CHALLENGE,
+                            'numbers' => $previewNumbers,
+                            'words' => $words->pluck('word')
+                        ]);
+                        break;
+                    case AuthorizationChallenge::TIMED_OUT:
+                        if (now()->gt($challenge->valid_till)) {
+                            $challenge->status = AuthorizationChallenge::INACTIVE;
+                            $challenge->save();
+        
+                            return $this->createWordChallenge(Auth::id(), $complexity);
+                        }
+                        return $this->challengeTimedOutResponse($challenge);
+                        break;
+                    default:
+                        return response()->api(false, 'Error', null);
+                        break;
+                }
+                break;
+            case AuthorizationChallenge::GAUTH_CHALLENGE:
+                if (true == empty($challenge)) {
+                    return $this->createGauthChallenge(Auth::id(), $complexity);
+                }
+        
+                switch ($challenge->challenge_status) {
+                    case AuthorizationChallenge::PASSED:
+                        if (now()->gt($challenge->valid_till)) {
+                            $challenge->status = AuthorizationChallenge::INACTIVE;
+                            $challenge->save();
+        
+                            return $this->createGauthChallenge(Auth::id(), $complexity);
+                        }
+                        $this->complexityCheck($request->complexity, Auth::user());
+                        return $this->challengePassedResponse();
+                        break;
+                    case AuthorizationChallenge::PENDING:
+                        return response()->api(true, 'Challenge is pending', [
+                            'success' => null,
+                            'challenge_type' => AuthorizationChallenge::GAUTH_CHALLENGE,
+                        ]);
+                        break;
+                    case AuthorizationChallenge::TIMED_OUT:
+                        if (now()->gt($challenge->valid_till)) {
+                            $challenge->status = AuthorizationChallenge::INACTIVE;
+                            $challenge->save();
+        
+                            return $this->createGauthChallenge(Auth::id(), $complexity);
+                        }
+                        return $this->challengeTimedOutResponse($challenge);
+                        break;
+                    default:
+                        return response()->api(false, 'Error', null);
+                        break;
+                }
+                break;
+            case AuthorizationChallenge::MOBILE_OTP_CHALLENGE:
+                if (true == empty($challenge)) {
+                    return $this->createMobileOtpChallenge(Auth::id(), $complexity);
+                }
+                switch ($challenge->challenge_status) {
+                    case AuthorizationChallenge::PASSED:
+                        if (now()->gt($challenge->valid_till)) {
+                            $challenge->status = AuthorizationChallenge::INACTIVE;
+                            $challenge->save();
+        
+                            return $this->createMobileOtpChallenge(Auth::id(), $complexity);
+                        }
+                        $this->complexityCheck($request->complexity, Auth::user());
+                        return $this->challengePassedResponse();
+                        break;
+                    case AuthorizationChallenge::PENDING:
+                        return response()->api(true, 'Challenge is pending', [
+                            'success' => null,
+                            'challenge_type' => AuthorizationChallenge::MOBILE_OTP_CHALLENGE,
+                            'contact' => str_repeat('*', strlen(Auth::user()->contact)/1.5).substr(Auth::user()->contact, strlen(Auth::user()->contact)/1.5)
+                        ]);
+                        break;
+                    case AuthorizationChallenge::TIMED_OUT:
+                        if (now()->gt($challenge->valid_till)) {
+                            $challenge->status = AuthorizationChallenge::INACTIVE;
+                            $challenge->save();
+        
+                            return $this->createGauthChallenge(Auth::id(), $complexity);
+                        }
+                        return $this->challengeTimedOutResponse($challenge);
+                        break;
+                    default:
+                        return response()->api(false, 'Error', null);
+                        break;
+                }
+                break;
+            default:
+                return response()->api(false, 'Invalid challenge type', null);
+                break;
+        }
+        
+    }
+
+    public function createChallengeWithoutAuth(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'complexity' => [
+                'required',
+                Rule::in($this->getUnguardedComplexities()),
+            ],
+            'user_id' => 'required'
+        ]);
+        if ($validator->fails()) {
+            return response()->api(false, implode(', ', $validator->errors()->all()), null);
+        }
+        Auth::loginUsingId($request->user_id);
+
+        return $this->createChallenge($request);
+    }
+
+    /**
+     * Used to verify challenge provided by user
+     *
+     * 1. check challenge type
+     *
+     * 2. find challenge numbers of user for the specified complexity / event
+     *
+     * 3.1.1. Match the user input words with the mnenmonic words at position of corresponding challenge number
+     *
+     * 3.1.2. If each and every word matches with mnemonic word then proceed to point 6, otherwise increment the retry count.
+     *
+     * 3.1.3. If the retry count is greater than /equal to number specified in `config('app.challenge_word_retry_limit')` then UPDATE `challenge_status` to `TIMED_OUT`, valid_till to 5 mins from current time
+     *
+     * 3.1.4. Suspend user for 10 mins. Call `challengeTimedOutResponse()`
+     *
+     * 3.1.5. Set challenge_status to PASSED and valid_till
+     *
+     * 3.2.1. validate gauth token/secret
+     *
+     * 3.2.2. if false increment the retry count
+     *
+     * 3.2.3. - 3.2.5 is same as 3.1.3 - 3.1.5
+     *
+     * 4. If complexity is LOGIN_COMPLEXITY then find the userAccess log of the user and set is_mnemonic_verified = 1
+     *
+     * 5. Call `challengePassedResponse()` .
+     *
+     * @param Request $request
+     * @return mixed
+     */
+    public function verifyChallenge(Request $request)
+    {
+        switch ($request->challenge_type) {
+            case AuthorizationChallenge::MNEMONIC_CHALLENGE:
+                $newRules = [
+                    'words' => 'required|array',
+                ];
+                break;
+            case AuthorizationChallenge::GAUTH_CHALLENGE:
+            case AuthorizationChallenge::MOBILE_OTP_CHALLENGE:
+                $newRules = [
+                    'secret' => 'required',
+                ];
+                break;
+            default:
+                return response()->api(false, 'Invalid challenge type', null);
+                break;
+        }
+        $validator = Validator::make($request->all(), array_merge(
+            [
+                'complexity' => 'required',
+            ],
+            $newRules
+        ));
+        if ($validator->fails()) {
+            return response()->api(false, implode(', ', $validator->errors()->all()), null);
+        }
+
+        $challenge = AuthorizationChallenge::findByUserIdByTypeByComplexity(Auth::id(), $request->challenge_type, $request->complexity);
+        if (true == empty($challenge)) {
+            return response()->api(false, 'No challenge found', null);
+        }
+        switch ($request->challenge_type) {
+            case AuthorizationChallenge::MNEMONIC_CHALLENGE:
+                $words = UserMnemonicWord::getByUserByNumbers(json_decode($challenge->numbers), Auth::id())->keyBy('number');
+                foreach (json_decode($challenge->numbers) as $key => $number) {
+                    if (false == empty($words[$number]) 
+                        && $request->words[$key] != $words[$number]->word) {
+                        
+                        $challenge->retry_count += 1;
+                        if ($challenge->retry_count >= config('app.challenge_word_retry_limit')) {
+                            $challenge->challenge_status = AuthorizationChallenge::TIMED_OUT;
+                            $challenge->valid_till = now()->addMinutes(config('app.challenge_word_retry_timeout'));
+                            $challenge->save();
+        
+                            Auth::user()->suspended_till = now()->addMinutes(10);
+                            Auth::user()->save();
+        
+                            return $this->challengeTimedOutResponse($challenge);
+                        }
+                        $totalMnemonicWords = UserMnemonicWord::countUserMnemonicWords(Auth::id());
+                        if ($totalMnemonicWords == 0) {
+                            return response()->api(false, 'Mneumonic is not set', null);
+                        }
+                        $numbers = randomNumGenerator(1, $totalMnemonicWords + 1, config('app.mnemonic_challenge_word_limit'));
+                        $words = UserMnemonicWord::getByUserByNumbers($numbers, Auth::id());
+                        $previewNumbers = array_slice($numbers, 0, $request->complexity);
+
+                        $challenge->numbers = json_encode($previewNumbers);
+                        $challenge->save();
+        
+                        return $this->mneumonicChallengeFailedResponse(Auth::id(), $request->complexity, config('app.challenge_word_retry_limit') - $challenge->retry_count, $previewNumbers, $words->pluck('word'));
+                    }
+                }
+                break;
+            case AuthorizationChallenge::GAUTH_CHALLENGE:
+                $google2fa = new Google2FA();
+                $timestamp = $google2fa->verifyKeyNewer(Auth::user()->security_profile->google_authenticator_secret, $request->secret, Auth::user()->gauth_timestamp, 0);
+                if ($timestamp !== false) {
+                    Auth::user()->gauth_timestamp = $timestamp;
+                    Auth::user()->save();
+                } else {
+                    $challenge->retry_count += 1;
+                    if ($challenge->retry_count >= config('app.challenge_word_retry_limit')) {
+                        $challenge->challenge_status = AuthorizationChallenge::TIMED_OUT;
+                        $challenge->valid_till = now()->addMinutes(config('app.challenge_word_retry_timeout'));
+                        $challenge->save();
+    
+                        return $this->challengeTimedOutResponse($challenge);
+                    }
+                    $challenge->save();
+                    
+                    return response()->api(true, "Challenge was failed, attempts left: ".(config('app.challenge_word_retry_limit') - $challenge->retry_count), [
+                        'success' => false,
+                        'max_try_out_reached' => false,
+                    ]);
+                }
+                break;
+            case AuthorizationChallenge::MOBILE_OTP_CHALLENGE:
+                if ($request->secret != $challenge->numbers) {
+                    $challenge->retry_count += 1;
+                    if ($challenge->retry_count >= config('app.challenge_word_retry_limit')) {
+                        $challenge->challenge_status = AuthorizationChallenge::TIMED_OUT;
+                        $challenge->valid_till = now()->addMinutes(config('app.challenge_word_retry_timeout'));
+                        $challenge->save();
+
+                        return $this->challengeTimedOutResponse($challenge);
+                    }
+                    $challenge->save();
+                    
+                    return response()->api(true, "Challenge was failed, attempts left: ".(config('app.challenge_word_retry_limit') - $challenge->retry_count), [
+                        'success' => false,
+                        'max_try_out_reached' => false,
+                    ]);
+                }
+                break;
+            default:
+                return response()->api(false, 'Invalid challenge type', null);
+                break;
+        }
+
+        $challenge->challenge_status = AuthorizationChallenge::PASSED;
+        $challenge->valid_till = now()->addMinutes(config('app.challenge_word_success_timeout'));
+        $challenge->save();
+
+        $this->complexityCheck($request->complexity, Auth::user());
+        // if ($request->complexity == AuthorizationChallenge::LOGIN_COMPLEXITY) {
+        //     $userAccessLog = UserAccessLog::findLatestByTypeByUserByClient(UserAccessLog::LOGIN, Auth::id(), Auth::user()->token()->client_id);
+        //     if (false == empty($userAccessLog)) {
+        //         $userAccessLog->is_login_verified = 1;
+        //         $userAccessLog->save();
+        //     }
+        // }
+
+        return $this->challengePassedResponse();
+    }
+
+    /**
+     * Used when no auth is required e.g for forget password event.
+     *
+     * 1. Make user authenticated internally.
+     *
+     * 2. Rest process is same as that of `verifyChallenge()`.
+     * @param Request $request
+     * @return mixed
+     */
+    public function verifyChallengeWithoutAuth(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'complexity' => [
+                'required',
+                Rule::in($this->getUnguardedComplexities()),
+            ],
+            'user_id' => 'required'
+        ]);
+        if ($validator->fails()) {
+            return response()->api(false, implode(', ', $validator->errors()->all()), null);
+        }
+        Auth::loginUsingId($request->user_id);
+
+        return $this->verifyChallenge($request);
+    }
+
+    public function resendMobileOtpPassword(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'complexity' => 'required',
+        ]);
+        if ($validator->fails()) {
+            return response()->api(false, implode(', ', $validator->errors()->all()), null);
+        }
+
+        $challenge = AuthorizationChallenge::findByUserIdByTypeByComplexity(Auth::id(), AuthorizationChallenge::MOBILE_OTP_CHALLENGE, $request->complexity);
+        if (true == empty($challenge)) {
+            return response()->api(false, 'Challenge not found', null);            
+        }
+        if ($challenge->challenge_status != AuthorizationChallenge::PENDING) {
+            return response()->api(false, 'Challenge not valid', null);                        
+        }
+        if (false == (now()->gt($challenge->created_at->addMinute()))) {
+            return response()->api(false, 'Resend can only be called after a minute', null);
+        }
+
+        $secret = mt_rand(100000, 999999);
+        $challenge->numbers = $secret;
+        $challenge->save();
+        Auth::user()->notify(new ChallengeOtp("{$secret} is valid for 5 minutes"));
+        
+        return response()->api(true, 'Otp resent', null);                     
+    }
+
+    /**
+     * 1. Counts mnemonic words of a user; by default there are 12 mnemonic words for a user.
+     *
+     * 2. Generates an array of random numbers between 1 and 12+1, total count of that array is value of complexity
+     *
+     * 3. Creates challenge entry in Authorization Challenge Table.
+     * @param int $userId
+     * @param int $complexity
+     * @return mixed
+     */
+    private function createWordChallenge($userId, $complexity)
+    {
+        $totalMnemonicWords = UserMnemonicWord::countUserMnemonicWords($userId);
+        if ($totalMnemonicWords == 0) {
+            return response()->api(false, 'Mneumonic is not set', null);
+        }
+        $numbers = randomNumGenerator(1, $totalMnemonicWords + 1, config('app.mnemonic_challenge_word_limit'));
+        $words = UserMnemonicWord::getByUserByNumbers($numbers, Auth::id());
+        $previewNumbers = array_slice($numbers, 0, floor($complexity));
+        AuthorizationChallenge::createChallenge([
+            'user_id' => $userId,
+            'challenge_type' => AuthorizationChallenge::MNEMONIC_CHALLENGE,
+            'numbers' => json_encode($previewNumbers),
+            'complexity' => $complexity,
+            'challenge_status' => AuthorizationChallenge::PENDING,
+            'retry_count' => 0,
+            'valid_till' => null,
+            'status' => AuthorizationChallenge::ACTIVE,
+        ]);
+        
+        return response()->api(true, 'Challenge created successfully', [
+            'success' => null,
+            'challenge_type' => AuthorizationChallenge::MNEMONIC_CHALLENGE,
+            'numbers' => $previewNumbers,
+            'words' => $words->pluck('word')
+        ]);
+    }
+
+    /**
+     * Creates challenge entry in Authorization Challenge Table.
+     * @param int $userId
+     * @param int $complexity
+     * @return mixed
+     */
+    private function createGauthChallenge($userId, $complexity)
+    {
+        AuthorizationChallenge::createChallenge([
+            'user_id' => $userId,
+            'challenge_type' => AuthorizationChallenge::GAUTH_CHALLENGE,
+            'numbers' => null,
+            'complexity' => $complexity,
+            'challenge_status' => AuthorizationChallenge::PENDING,
+            'retry_count' => 0,
+            'valid_till' => null,
+            'status' => AuthorizationChallenge::ACTIVE,
+        ]);
+
+        return response()->api(true, 'Challenge created successfully', [
+            'success' => null,
+            'challenge_type' => AuthorizationChallenge::GAUTH_CHALLENGE,
+        ]);
+    }
+
+    /**
+     * Creates challenge entry in Authorization Challenge Table.
+     * @param int $userId
+     * @param int $complexity
+     * @return mixed
+     */
+    private function createMobileOtpChallenge($userId, $complexity)
+    {
+        $secret = mt_rand(100000, 999999);
+        AuthorizationChallenge::createChallenge([
+            'user_id' => $userId,
+            'challenge_type' => AuthorizationChallenge::MOBILE_OTP_CHALLENGE,
+            'numbers' => $secret,
+            'complexity' => $complexity,
+            'challenge_status' => AuthorizationChallenge::PENDING,
+            'retry_count' => 0,
+            'valid_till' => null,
+            'status' => AuthorizationChallenge::ACTIVE,
+        ]);
+        
+        Auth::user()->notify(new ChallengeOtp("{$secret} is valid for 5 minutes"));
+
+        return response()->api(true, 'Challenge created successfully', [
+            'success' => null,
+            'challenge_type' => AuthorizationChallenge::MOBILE_OTP_CHALLENGE,
+            'contact' => str_repeat('*', strlen(Auth::user()->contact)/1.5).substr(Auth::user()->contact, strlen(Auth::user()->contact)/1.5)
+        ]);
+    }
+
+    private function challengePassedResponse()
+    {
+        return response()->api(true, 'Challenge was succeeded ', [
+            'success' => true,
+        ]);
+    }
+
+    /**
+     * Called when Challenge Fails
+     *
+     * @param int $userId
+     * @param int $complexity
+     * @param int $retriesLeft
+     * @param array $numbers
+     * @return mixed
+     */
+    private function mneumonicChallengeFailedResponse($userId, $complexity, $retriesLeft, $numbers, $words)
+    {
+        $totalMnemonicWords = UserMnemonicWord::countUserMnemonicWords($userId);
+        if ($totalMnemonicWords == 0) {
+            return response()->api(false, 'Mneumonic is not set', null);
+        }
+
+        return response()->api(true, "Challenge was failed, attempts left: {$retriesLeft}", [
+            'success' => false,
+            'max_try_out_reached' => false,
+            'numbers' => $numbers,
+            'words' => $words
+        ]);
+    }
+
+    /**
+     * Called when challenge is timed-out
+     * @return mixed
+     */
+    private function challengeTimedOutResponse($challenge)
+    {
+        return response()->api(true, 'Challenge was failed and user is timed out', [
+            'success' => false,
+            'max_try_out_reached' => true,
+        ]);
+    }
+
+    private function complexityCheck($complexity, $user)
+    {
+        switch ($complexity) {
+            case AuthorizationChallenge::LOGIN_COMPLEXITY:
+                $userAccessLog = UserAccessLog::findLatestByTypeByUserByClient(UserAccessLog::LOGIN, $user->id, $user->token()->client_id);
+                if (false == empty($userAccessLog)) {
+                    $userAccessLog->is_login_verified = 1;
+                    $userAccessLog->save();
+                }
+                break;
+            default:
+                break;
+        }
+    }
+
+    private function getUnguardedComplexities()
+    {
+        return [
+            AuthorizationChallenge::FORGET_PASSWORD_COMPLEXITY,
+        ];
+    }
+
+    private function getAllChallengeTypes()
+    {
+        return [
+            AuthorizationChallenge::MNEMONIC_CHALLENGE,
+            AuthorizationChallenge::GAUTH_CHALLENGE,            
+        ];
+    }
+}
+

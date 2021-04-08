@@ -1,0 +1,248 @@
+<?php
+
+if (!function_exists('generateRandomString')) {
+
+    function generateRandomString($length = 10, $keyspace = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ')
+    {
+        $pieces = [];
+        $max = mb_strlen($keyspace, '8bit') - 1;
+        for ($i = 0; $i < $length; ++$i) {
+            $pieces[] = $keyspace[random_int(0, $max)];
+        }
+        return implode('', $pieces);
+    }
+}
+
+if (!function_exists('passwordGenerator')) {
+
+    function passwordGenerator()
+    {
+        $totalNo = 3;
+        $password = [];
+        $dictionary = json_decode(file_get_contents(storage_path('password_dictionary.json')));
+        $dictionaryWordCount = count($dictionary);
+        for ($i = 0; $i < $totalNo; $i++) {
+            $word = $dictionary[mt_rand(0, $dictionaryWordCount - 1)];
+            if ($i != 0) {
+                $word = ucfirst($word);
+            }
+
+            array_push($password, $word);
+        }
+        return implode('', $password);
+    }
+}
+
+if (!function_exists('randomNumGenerator')) {
+    
+    function randomNumGenerator($min, $max, $count)
+    {
+        $numbers = [];
+        while (count($numbers) < $count) {
+            array_push($numbers, mt_rand($min, $max - 1));
+            $numbers = array_unique($numbers);
+        }
+        sort($numbers);
+
+        return $numbers;
+    }
+}
+
+if (!function_exists('encodeHash')) {
+    function encodeHash($value)
+    {
+        if (config('app.enable_hashid')) {
+            return (new Hashids\Hashids(config('app.hashid_secret'), config('app.hashid_length')))->encode($value);
+        }
+        return $value;
+    }
+}
+    
+if (!function_exists('sendMessage')) {
+    
+    function sendMessage($content, $contact)
+    {
+        return file_get_contents("http://sms.webstag.net/sendSMS?username=".config('app.sms_app_username')."&message=".urlencode($content)."&sendername=".config('app.sms_sender_name')."&smstype=TRANS&numbers={$contact}&apikey=".config('app.sms_app_key'));
+    }
+}
+
+if (!function_exists('makeNodeRequest')) {
+    
+    function makeNodeRequest($data, $endpoint)
+    {
+        // $rsaNode = new \phpseclib\Crypt\RSA;
+        try {
+            $laraPriKey = file_get_contents(storage_path('key/lara-private.key'));
+        }
+        catch(\Exception $e) {
+            return [
+                'status' => false, 
+                'message' => "No lara private key present", 
+                'data' => null
+            ];
+        }
+        try {
+            $nodePubKey = file_get_contents(storage_path('key/node-public.key'));
+        }
+        catch(\Exception $e) {
+            return [
+                'status' => false, 
+                'message' => "No node public key present", 
+                'data' => null
+            ];
+        }
+        // dd($nodePubKey);
+        // $rsaNode->loadKey($nodePubKey);
+
+        $data = json_encode($data);
+        // $rsaNode->setEncryptionMode(\phpseclib\Crypt\RSA::ENCRYPTION_PKCS1);
+        // $ciphertext = $rsaNode->encrypt($data);
+        // dump($ciphertext);
+        // dd(base64_encode($ciphertext));
+        $client = new \GuzzleHttp\Client();
+
+        try {
+            $nodeKeyResponse = $client->request('GET', config('app.node_url') . '/api/aes-key', [
+                'body' => "",
+                'headers' => ['Content-Type' => 'text/plain']
+            ]);
+        } catch (\Exception $e) {
+            return [
+                'status' => false,
+                'message' => "Error caught while aes hit: ".$e->getMessage(), 
+                'data' => null
+            ];
+        }
+
+        $nodeKeyOutput = (string)$nodeKeyResponse->getBody();
+        // dd($nodeKeyOutput);
+        $rsaLara = new \phpseclib\Crypt\RSA;
+        $rsaLara->loadKey($laraPriKey);
+        $rsaLara->setEncryptionMode(\phpseclib\Crypt\RSA::ENCRYPTION_PKCS1);
+        try {
+            // dd(base64_decode($nodeKeyOutput));
+            $decryptedKeyData = $rsaLara->decrypt(base64_decode($nodeKeyOutput));
+            $finalKeyData = json_decode($decryptedKeyData);
+            // dump($decryptedData);
+            // dump($finalKeyData);
+        } catch (\Exception $e) {
+            return [
+                'status' => false, 
+                'message' => "Error caught while decyrpt from node @aes: ".$e->getMessage(), 
+                'data' => null
+            ];
+        }
+
+        $laraCipher = new phpseclib\Crypt\AES(); // could use AES::MODE_CBC
+        $key = base64_decode($finalKeyData->data);
+        $laraCipher->setKey($key);
+        $iv = phpseclib\Crypt\Random::string($laraCipher->getBlockLength() >> 3);
+        $laraCipher->setIV($iv);
+        $enc = $laraCipher->encrypt($data);
+        $body = base64_encode($iv).":".base64_encode($enc);
+        // dd($body);
+        try {
+            $nodeResponse = $client->request('POST', config('app.node_url') . $endpoint, [
+                'body' => $body,
+                'headers' => ['Content-Type' => 'text/plain']
+            ]);
+        } catch (\Exception $e) {
+            return [
+                'status' => false, 
+                'message' => "Error caught while {$endpoint} hit: ".$e->getMessage(), 
+                'data' => null
+            ];
+        }
+
+        unset($client);
+        $nodeOutput = (string)$nodeResponse->getBody();
+        // dd($nodeOutput);
+        // $rsaLara = new \phpseclib\Crypt\RSA;
+        // $rsaLara->loadKey($laraPriKey);
+        try {
+            $nodeSplittedOp = explode(':', $nodeOutput);
+            // dump(base64_encode($key));
+            // dump($nodeSplittedOp);
+            $nodeCipher = new phpseclib\Crypt\AES();
+            $nodeCipher->setKey($key);
+            $nodeCipher->setIV(base64_decode($nodeSplittedOp[0], true));
+            $decryptedData = $nodeCipher->decrypt(base64_decode($nodeSplittedOp[1], true));
+            if ($decryptedData == false) {
+                return [
+                    'status' => false, 
+                    'message' => "Error while decyrpt from node @{$endpoint}: ".$e->getMessage(), 
+                    'data' => null
+                ];
+            }
+
+            // dump('dump',$decryptedData);
+            $finalData = json_decode($decryptedData);
+            // dump($finalData);
+        } catch (\Exception $e) {
+            return [
+                'status' => false, 
+                'message' => "Error caught while decyrpt from node @{$endpoint}: ".$e->getMessage(), 
+                'data' => null
+            ];
+        }
+        // dd($finalData);
+        if ($finalData->status == false) {
+            return [
+                'status' => false, 
+                'message' => $finalData->message, 
+                'data' => $finalData->data
+            ];
+        }
+        // dd($finalData);
+        return [
+            'status' => true, 
+            'message' => $finalData->message, 
+            'data' => $finalData->data
+        ];
+
+    }
+}
+
+if (!function_exists('getLocationByIpAddress')) {
+
+    function getLocationByIpAddress($ip)
+    {
+        $locationDetails=[];
+        //$randIP = "".mt_rand(0,255).".".mt_rand(0,255).".".mt_rand(0,255).".".mt_rand(0,255);
+        $location=json_decode(file_get_contents('http://www.geoplugin.net/json.gp?ip='.$ip));
+
+        if($location->geoplugin_status==404){
+            $externalContent = file_get_contents('http://checkip.dyndns.com/');
+            preg_match('/Current IP Address: \[?([:.0-9a-fA-F]+)\]?/', $externalContent, $m);
+            $externalIp = $m[1];
+
+            return getLocationByIpAddress($externalIp);
+        }
+
+        $locationDetails['country_code']=$location->geoplugin_countryCode;
+        $locationDetails['country']=$location->geoplugin_countryName;
+
+        if(empty($location->geoplugin_regionName)){
+            $locationDetails['state']='STATE_NOT_FOUND';
+            $locationDetails['state_code']='STATE_CODE_NOT_FOUND';
+        }else {
+            $locationDetails['state'] = $location->geoplugin_regionName;
+            $locationDetails['state_code']=$location->geoplugin_regionCode;
+        }
+
+
+        $locationDetails['latitude']=$location->geoplugin_latitude;
+        $locationDetails['longitude']=$location->geoplugin_longitude;
+
+        return json_encode($locationDetails);
+    }
+}
+
+if (!function_exists('floordec')) {
+
+    function floordec($zahl, $decimals = 2)
+    {
+        return floor($zahl * pow(10, $decimals)) / pow(10, $decimals);
+    }
+}
+

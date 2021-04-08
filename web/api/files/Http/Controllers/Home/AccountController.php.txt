@@ -1,0 +1,344 @@
+<?php
+
+namespace App\Http\Controllers\Home;
+
+use App\Coins\CoinStrategy;
+use App\Http\Controllers\Controller;
+use App\Models\Advertisement;
+use App\Models\AuthorizationChallenge;
+use App\Models\ChatMessage;
+use App\Models\CoinDetail;
+use App\Models\Notification;
+use App\Models\PublicAddress;
+use App\Models\Trade;
+use App\Models\Transaction;
+use App\Models\User;
+use App\Models\UserAccessLog;
+use App\Models\UserCoin;
+use App\Models\WithdrawalRequest;
+use App\Models\UserSecurityProfile;
+use Auth;
+use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
+use Validator;
+
+class AccountController extends Controller
+{
+    /*
+     * Application will give a receiving address on which user will deposit the selected coin amount in his wallet
+     * @link https://coinfaucet.eu/en/btc-testnet/ Enter Receiving Address here to deposite TBTC in wallet
+     * @param Request $request int `number`
+     * @return mixed `recieving_address` `old_addresses`
+     * @throws \Exception `CoinStrategy` class may throw an exception
+     * @see \App\Coins\CoinStrategy
+     */
+    public function getRecievingAddress(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'number' => 'integer|min:0|max:2',
+        ]);
+        if ($validator->fails()) {
+            return response()->api(false, implode(', ', $validator->errors()->all()), null);
+        }
+        
+        $publicAddress = (new CoinStrategy($request->coin))->getRecievingAddress($request->coin_obj, Auth::user());
+        if ($publicAddress['status'] == false) {
+            return response()->api($publicAddress['status'], $publicAddress['message'], $publicAddress['data']);
+        }
+
+        $oldAddresses = PublicAddress::getUsedAddressesByUser($request->coin_id, Auth::id());
+        foreach ($oldAddresses as $key => $oldAddress) {
+            $oldAddress->address = str_limit($oldAddress->address, strlen($oldAddress->address) / 2);
+            $oldAddress->setVisible(['address', 'assigned_at']);
+        }
+
+        return response()->api(true, 'Success', [
+            'recieving_address' => $publicAddress['data'],
+            'old_addresses' => $oldAddresses,
+        ]);
+    }
+
+    /**
+     * Get Withdrawal Meta Data of User
+     * @param Request $request
+     * @return mixed `balance` , `transaction_fee` , `can_spend_amount` , `pending_withdrawal` , `escrows`
+     */
+    public function getWithdrawalMeta(Request $request)
+    {
+        $userCoin = UserCoin::findUserCoin($request->coin_id, Auth::id());
+        if (true == empty($userCoin)) {
+            return response()->api(false, 'User coin not found', null);
+        }
+        $balance = $userCoin->balance;
+        $withdrawalFee = $request->coin_obj->detail->withdrawal_fee;
+        $openTrades = Trade::getEscrowTradesBySellerId($request->coin_id, Auth::id());
+        $canSpendAmount = $balance - $withdrawalFee;
+        foreach ($openTrades as $key => $openTrade) {
+            $openTrade->amount = $openTrade->coin_original_value;
+            $openTrade->setVisible([
+                'id', 'amount',
+            ]);
+            $canSpendAmount -= $openTrade->amount;
+        }
+        $pendingWithdrawals = WithdrawalRequest::getUnprocessedRequestByUser($request->coin_id, Auth::id());
+        foreach ($pendingWithdrawals as $key => $pendingWithdrawal) {
+            $canSpendAmount -= $pendingWithdrawal->amount;
+        }
+
+        return response()->api(true, 'Success', [
+            'balance' => $balance,
+            'transaction_fee' => $withdrawalFee,
+            'can_spend_amount' => $canSpendAmount > 0 ? number_format(floordec($canSpendAmount, 6), 6) : 0,
+            'pending_withdrawal' => $pendingWithdrawals->sum('amount'),
+            'escrows' => $openTrades,
+        ]);
+    }
+
+    /**
+     * Create Withdrawal Request of selected Coin
+     * @param Request $request `amount` , `address`
+     * @return mixed
+     * @throws \Exception `CoinStrategy` class may throw an exception
+     * @see \App\Coins\CoinStrategy
+     */
+    public function createWithdrawalRequest(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'amount' => 'required',
+            'address' => 'required',
+        ]);
+        if ($validator->fails()) {
+            return response()->api(false, implode(', ', $validator->errors()->all()), null);
+        }
+
+        $isAddressValid = (new CoinStrategy($request->coin))->validateAddress($request->address);
+        if (false == $isAddressValid) {
+            return response()->api(false, 'Address is not valid', null);
+        }
+        
+         $challenge = AuthorizationChallenge::findValidPassedByUserIdByComplexity(Auth::id(), AuthorizationChallenge::WITHDRAWAL_COMPLEXITY);
+         if (true == empty($challenge)) {
+             return response()->api(false, 'Challenge not completed', null);
+         }
+
+        if (false == empty(WithdrawalRequest::findUnprocessedRequestByUser($request->coin_id, Auth::id()))) {
+            return response()->api(false, 'Already a request is pending', null);
+        }
+
+        $balance = UserCoin::findUserCoin($request->coin_id, Auth::id())->balance;
+        $withdrawalFee = $request->coin_obj->detail->withdrawal_fee;
+        $openTrades = Trade::getEscrowTradesBySellerId($request->coin_id, Auth::id());
+        $canSpendAmount = $balance - $withdrawalFee;
+        foreach ($openTrades as $key => $openTrade) {
+            $openTrade->amount = $openTrade->coin_original_value;
+            $openTrade->setVisible([
+                'id', 'amount',
+            ]);
+            $canSpendAmount -= $openTrade->amount;
+        }
+        $pendingWithdrawals = WithdrawalRequest::getUnprocessedRequestByUser($request->coin_id, Auth::id());
+        foreach ($pendingWithdrawals as $key => $pendingWithdrawal) {
+            $canSpendAmount -= $pendingWithdrawal->amount;
+        }
+        if ($request->amount > $canSpendAmount) {
+            return response()->api(false, 'Amount is not  valid', null);
+        }
+
+        WithdrawalRequest::createWithdrawalRequest([
+            'user_id' => Auth::id(),
+            'coin_id' => $request->coin_id,
+            'address' => $request->address,
+            'amount' => $request->amount + $withdrawalFee,
+            'transfer_amount' => $request->amount,
+            'fee' => $withdrawalFee,
+            'is_approved' => ((new CoinStrategy($request->coin))->getWithdrawalApprovalLimit($request->coin_obj) > $request->amount) ? 1 : 0,
+            'is_processed' => WithdrawalRequest::UNPROCCESSED,
+            'status' => WithdrawalRequest::ACTIVE,
+        ]);
+
+        return response()->api(true, 'Withdrawal request stored successfully', [
+            'coin_symbol' => $request->coin,
+            'balance' => $canSpendAmount - $request->amount,
+        ]);
+    }
+
+    /**
+     * Fetch active Transactions by coin id, user id and array of types of transaction
+     * @param Request $request array `types`, int `year`, int `month`
+     * @return mixed
+     */
+    public function getTransactions(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'types' => [
+                'required', 'array',
+                Rule::in([Transaction::DEPOSIT, Transaction::WITHDRAWAL, Transaction::TRADE, Transaction::REFERRAL_DEPOSIT]),
+            ],
+            'year' => 'integer|min:2017|max:2050',
+            'month' => 'date_format:m',
+        ]);
+        if ($validator->fails()) {
+            return response()->api(false, implode(', ', $validator->errors()->all()), null);
+        }
+
+        $transactions = Transaction::getTransactions(
+            $request->offset ?? 0,
+            $request->limit ?? 10,
+            $request->month ?? now()->month,
+            $request->year ?? now()->year,
+            $request->coin_id,
+            Auth::id(),
+            $request->types
+        );
+
+        foreach ($transactions as $key => $transaction) {
+            //changing trade_type acc to user
+            if ($transaction->user_id == $transaction->buyer_id) {
+                $transaction->trade_type = Advertisement::BUY;
+                $transaction->trader_name = $transaction->seller_name;
+            } else {
+                $transaction->trade_type = Advertisement::SELL;
+                $transaction->trader_name = $transaction->buyer_name;
+            }
+            $transaction->setVisible([
+                'trader_name', 'created_at', 'type', 'amount',
+                'trade_id', 'tx_id', 'trade_type'
+            ]);
+        }
+
+        return response()->api(true, 'Success', $transactions);
+    }
+
+    /**
+     * An Important function which performs following operations:
+     *
+     * 1. Checks/creates user's coins in `user_coins` table
+     *
+     * 2. Find latest user access log with security profile (Mobile OTP or Google Authentication or Both)
+     *
+     * 3. Fetches Notifications (Read and Unread)
+     *
+     * 4. Fetches Country
+     *
+     * @param Request $request
+     * @return mixed
+     */
+    public function getMetaData(Request $request)
+    {
+        $userCoin = UserCoin::findUserCoin($request->coin_id, Auth::id());
+
+        if (true == empty($userCoin)) {
+            UserCoin::createUserCoin([
+                'user_id' => Auth::id(),
+                'coin_id' => $request->coin_id,
+                'balance' => 0,
+                'trade_volume' => 0,
+                'level' => 1,
+                'status' => UserCoin::ACTIVE,
+            ]);
+        }
+
+        $access = UserAccessLog::findLatestWithSecurityProfile(UserAccessLog::LOGIN, Auth::id(),
+            Auth::user()->token()->client_id);
+
+        $unreadType = ["App\Notifications\TradeRequest", "App\Notifications\TradeRequestAccepted"];
+        $notifications = Notification::getNotifications(0, 10, Auth::id());
+        $tradeIds = [];
+        foreach ($notifications as $notification) {
+            if (in_array($notification->type, $unreadType) && $notification->data['status'] == 'accepted') {
+                array_push($tradeIds, (int) $notification->data['trade_id']);
+            }
+        }
+        $unreadGrouped = ChatMessage::getUnreadByTradeIdByRecipientId($tradeIds, Auth::id())->groupBy('trade_id');
+        foreach ($notifications as $notification) {
+            if (in_array($notification->type, $unreadType) && $notification->data['status'] == 'accepted') {
+                $notification->unread = false == empty($unreadGrouped[$notification->data['trade_id']]) ? $unreadGrouped[$notification->data['trade_id']]->count() : 0;
+            }
+        }
+        unset($unreadGrouped, $tradeIds);
+
+        $userCoins = UserCoin::getUserCoins(Auth::id());
+        $coinTrades = Trade::getEscrowTradesByCoinIdsBySellerId($userCoins->pluck('coin_id'), Auth::id())->groupBy('coin_id');
+        $pendingWithdrawals = WithdrawalRequest::getUnprocessedRequestByUser($userCoins->pluck('coin_id'), Auth::id())->groupBy('coin_id');
+        foreach ($userCoins as $userCoin) {
+            if (false == empty($coinTrades[$userCoin->coin_id])) {
+                $userCoin->balance -= $coinTrades[$userCoin->coin_id]->sum('coin_original_value');
+            }
+            if (false == empty($pendingWithdrawals[$userCoin->coin_id])) {
+                $userCoin->balance -= $pendingWithdrawals[$userCoin->coin_id]->sum('amount');
+            }
+            $userCoin->balance = ($userCoin->balance > 0) ? $userCoin->balance : 0;
+        }
+
+        $data = [
+            'user' => [
+                'id' => Auth::id(),
+                'username' => Auth::user()->username,
+                'country_id' => Auth::user()->country_id,
+                'coins' => $userCoins,
+                'access' => $access,
+            ],
+            'notifications' => $notifications,
+        ];
+
+        return response()->api(true, 'Success', $data);
+    }
+
+    public function getNotifications(Request $request)
+    {
+        $unreadType = ["App\Notifications\TradeRequest", "App\Notifications\TradeRequestAccepted"];
+        $notifications = Notification::getNotifications($request->offset ?? 0, $request->limit ?? 20, Auth::id());
+        $tradeIds = [];
+        foreach ($notifications as $notification) {
+            if (in_array($notification->type, $unreadType) && $notification->data['status'] == true) {
+                array_push($tradeIds, (int) $notification->data['trade_id']);
+            }
+        }
+        $unreadGrouped = ChatMessage::getUnreadByTradeIdByRecipientId($tradeIds, Auth::id())->groupBy('trade_id');
+        foreach ($notifications as $notification) {
+            if (in_array($notification->type, $unreadType) && $notification->data['status'] == true) {
+                $notification->unread = false == empty($unreadGrouped[$notification->data['trade_id']]) ? $unreadGrouped[$notification->data['trade_id']]->count() : 0;
+            }
+        }
+        unset($unreadGrouped, $tradeIds);
+
+        return response()->api(true, 'Success', $notifications);
+    }
+
+    /**
+     * Marks a notification as read with date and time
+     * @param string $notificationId
+     * @return mixed
+     */
+    public function markNotificationRead($notificationId)
+    {
+        Notification::markAsReadById($notificationId);
+
+        return response()->api(true, 'Success', null);
+    }
+
+    /**
+     * Reset password of a user after passing the mnemonics challenge
+     * @param Request $request `password`
+     * @return mixed
+     */
+    public function resetPassword(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'password' => 'required',
+        ]);
+        if ($validator->fails()) {
+            return response()->api(false, implode(', ', $validator->errors()->all()), null);
+        }
+
+        $challenge = AuthorizationChallenge::findValidPassedByUserIdByComplexity(Auth::id(), AuthorizationChallenge::PASSWORD_RESET_COMPLEXITY);
+        if (true == empty($challenge)) {
+            return response()->api(false, 'Challenge not completed', null);
+        }
+
+        User::updatePassword(bcrypt($request->password), Auth::id());
+
+        return response()->api(true, 'Password successfully changed', null);
+    }
+}
+

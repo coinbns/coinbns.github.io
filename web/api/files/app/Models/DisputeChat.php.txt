@@ -1,0 +1,38 @@
+<?php
+
+namespace App\Models;
+
+use \App\Models;
+
+class DisputeChat extends Model
+{
+    public static function getChatByDisputeId($disputeId)
+    {
+        return self::where('dispute_id', $disputeId)
+            ->limit(5)
+            ->latest()
+            ->get();
+    }
+
+    public static function getPreviousNChatByDisputeId($disputeId, $lastId, $limit)
+    {
+        return self::where('dispute_id', $disputeId)
+            ->where('id', '<', $lastId)
+            ->limit($limit)
+            ->latest()
+            ->get();
+    }
+
+    public static function addCsReply($data)
+    {
+        $reply = new self;
+
+        $reply->dispute_id = $data['dispute_id'];
+        $reply->content = $data['content'];
+        $reply->type = $data['type'];
+        $reply->sender = $data['sender'];
+
+        return $reply->save();
+    }
+}
+

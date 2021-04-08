@@ -1,0 +1,391 @@
+<?php
+
+namespace App\Http\Controllers\Home;
+
+use App\Http\Controllers\Controller;
+use App\Models\ForumPost;
+use App\Models\ForumPostVote;
+use App\Models\ForumPostReply;
+use App\Models\ForumPostReplyVote;
+use App\Models\ForumPostTag;
+use App\Models\ForumCategory;
+use App\Models\ForumTag;
+use Illuminate\Validation\Rule;
+use Auth;
+use Illuminate\Http\Request;
+use Validator;
+
+/**
+ * Manages Forums: posts, votes, replies
+ * Class ForumController
+ * @package App\Http\Controllers\Home
+ */
+class ForumController extends Controller
+{
+    /**
+     * 1. By Default request parameter `q` has `all`, which fetches all the forum posts by users
+     *
+     * 2. If request parameter `q` has `search-tag=` then search by tag.
+     *
+     * 3. If request parameter `q` has `search=` then search string in forum title.
+     *
+     * 4. If none of the above are in `q` then search forum post by url, a field in `forum_categories` table
+     *
+     * 5. Get counts of forum posts replies, tags.
+     *
+     * 6. If user is logged in then get his/her votes along with forum posts too.
+     *
+     * @see \App\Models\ForumPost::searchByTag()
+     * @see \App\Models\ForumPost::search()
+     * @param Request $request
+     * @return mixed
+     */
+    public function getForumData(Request $request)
+    {
+        if (0 === strpos($request->q, 'search-tag=')) {
+            $posts = ForumPost::searchByTag($request->offset ?? 0, $request->limit ?? 10,
+                substr($request->q, 11));
+        } elseif (0 === strpos($request->q, 'search=')) {
+            $posts = ForumPost::search($request->offset ?? 0, $request->limit ?? 10, substr($request->q, 7));
+        } elseif ($request->q == 'all') {
+            $posts = ForumPost::getLatestWithVote($request->offset ?? 0, $request->limit ?? 10);
+        } else {
+            $forumCategory = ForumCategory::findByURL($request->q);
+            if (true == empty($forumCategory)) {
+                return response()->json([
+                    'message' => 'Not Found'
+                ], 404);
+            }
+            $posts = ForumPost::getByCategoryWithVote($request->offset ?? 0, $request->limit ?? 10, $forumCategory->id);
+        }
+
+        if ($posts->isNotEmpty()) {
+            $postReplyCount = ForumPost::getReplyCountByIds($posts->pluck('id'))->keyBy('id');
+            // foreach ($posts as $key => $post) {
+            //     $post->total_replies = $postReplyCount[$post->id]->total_replies ?? 0;
+            // }
+            $postTags = ForumPostTag::getByForumPostIds($posts->pluck('id'))->groupBy('forum_post_id');
+            foreach ($posts as $key => $post) {
+                $post->tags = $postTags[$post->id] ?? [];
+                $post->total_replies = $postReplyCount[$post->id]->total_replies ?? 0;
+                $post->total_votes = $post->total_votes ?? 0;
+            }
+        }
+
+        if ($posts->isNotEmpty() && auth('api')->user() != null) {
+            $userVotedPosts = ForumPostVote::getUserVoteByPosts($posts->pluck('id'),
+                auth('api')->user()->id)->keyBy('forum_post_id');
+            foreach ($posts as $key => $post) {
+                $post->user_vote_value = $userVotedPosts[$post->id]->value ?? 0;
+            }
+        }
+
+        return response()->api(true, 'success', $posts);
+    }
+
+    /**
+     * Used to upvote / down-vote a forum post.
+     *
+     * If user have voted a forum post and again votes then his vote value is reset to 0
+     * @param string|int $forumPostId
+     * @param Request $request
+     * @return mixed
+     */
+    public function voteForumPost($forumPostId, Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'value' => [
+                'required',
+                Rule::in([1, -1]),
+            ],
+        ]);
+        if ($validator->fails()) {
+            return response()->api(false, implode(', ', $validator->errors()->all()), null);
+        }
+
+        if (true == empty(ForumPost::findForumPost($forumPostId))) {
+            return response()->api(false, 'Forum post not found', null);
+        }
+
+        $forumPostVote = ForumPostVote::findByForumPostByUser($forumPostId, Auth::id());
+        if (true == empty($forumPostVote)) {
+            ForumPostVote::createVote([
+                'user_id' => Auth::id(),
+                'forum_post_id' => $forumPostId,
+                'value' => $request->value,
+                'status' => ForumPostVote::ACTIVE,
+            ]);
+            $value = $request->value;
+        } else {
+            if ($forumPostVote->value == $request->value) {
+                $value = 0;
+            } else {
+                $value = $request->value;
+            }
+            $forumPostVote->value = $value;
+            $forumPostVote->save();
+        }
+        return response()->api(true, 'success', $value);
+    }
+
+    /**
+     * Get forum post replies by type: latest or voted.
+     *
+     * if `latest` : get most recent post replies.
+     *
+     * if `voted` : get most voted post replies first
+     *
+     * @param string|int $forumPostId
+     * @param Request $request
+     * @return mixed
+     */
+    public function getForumPostReplies($forumPostId, Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'type' => [
+                'required',
+                Rule::in(['latest', 'voted']),
+            ],
+        ]);
+        if ($validator->fails()) {
+            return response()->api(false, implode(', ', $validator->errors()->all()), null);
+        }
+
+        if (true == empty(ForumPost::findForumPost($forumPostId))) {
+            return response()->api(false, 'Forum post not found', null);
+        }
+
+        $replies = [];
+        if ($request->type == 'latest') {
+            $replies = ForumPostReply::getLatestByPostWithVote($request->offset ?? 0, $request->limit ?? 10,
+                $forumPostId);
+        } elseif ($request->type == 'voted') {
+            # code...
+            $replies = ForumPostReply::getTopVotedByPostWithVote($request->offset ?? 0, $request->limit ?? 10, $forumPostId);
+        }
+        if ($replies->isNotEmpty()) 
+            if (auth('api')->user() != null) {
+                $userVotedPosts = ForumPostReplyVote::getUserVoteByPostReplies($replies->pluck('id'),
+                    auth('api')->user()->id)->keyBy('forum_post_reply_id');
+                foreach ($replies as $key => $reply) {
+                    $reply->user_vote_value = $userVotedPosts[$reply->id]->value ?? 0;
+                    $reply->total_votes = $reply->total_votes ?? 0;
+                }
+            } else {
+                foreach ($replies as $key => $reply) {
+                    $reply->user_vote_value = 0;
+                    $reply->total_votes = $reply->total_votes ?? 0;
+                }
+            }
+
+        if ($request->type == 'voted') {
+            $replies = $replies->sortByDesc('total_votes');
+        }
+
+        return response()->api(true, 'success', $replies->values());
+    }
+
+    /**
+     * Used to create a reply to a forum post.
+     *
+     * @param string|int $forumPostId
+     * @param Request $request
+     * @return mixed
+     */
+    public function addForumPostReply($forumPostId, Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'message' => 'required',
+        ]);
+        if ($validator->fails()) {
+            return response()->api(false, implode(', ', $validator->errors()->all()), null);
+        }
+
+        if (true == empty(ForumPost::findForumPost($forumPostId))) {
+            return response()->api(false, 'Forum post not found', null);
+        }
+
+        $postReplyId = ForumPostReply::createPostReply([
+            'forum_post_id' => $forumPostId,
+            'user_id' => Auth::id(),
+            'message' => $request->message,
+            'status' => ForumPostReply::ACTIVE,
+        ]);
+
+        return response()->api(true, 'success', $postReplyId);
+    }
+
+    /**
+     * Used to vote / down vote a post reply.
+     *
+     * If user have voted a forum post reply and again votes then his vote value is reset to 0
+     *
+     * @param string|int $forumPostReplyId
+     * @param Request $request
+     * @return mixed
+     */
+    public function voteForumPostReply($forumPostReplyId, Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'value' => [
+                'required',
+                Rule::in([1, -1]),
+            ],
+        ]);
+        if ($validator->fails()) {
+            return response()->api(false, implode(', ', $validator->errors()->all()), null);
+        }
+
+        if (true == empty(ForumPostReply::findForumPostReply($forumPostReplyId))) {
+            return response()->api(false, 'Forum post reply not found', null);
+        }
+
+        $forumPostReplyVote = ForumPostReplyVote::findByForumPostReplyByUser($forumPostReplyId, Auth::id());
+        if (true == empty($forumPostReplyVote)) {
+            ForumPostReplyVote::createVote([
+                'user_id' => Auth::id(),
+                'forum_post_reply_id' => $forumPostReplyId,
+                'value' => $request->value,
+                'status' => ForumPostVote::ACTIVE,
+            ]);
+            $value = $request->value;
+        } else {
+            if ($forumPostReplyVote->value == $request->value) {
+                $value = 0;
+            } else {
+                $value = $request->value;
+            }
+            $forumPostReplyVote->value = $value;
+            $forumPostReplyVote->save();
+        }
+        return response()->api(true, 'success', $value);
+    }
+
+    /**
+     * Fetches a forum post by id with
+     *
+     * - Count of replies and votes
+     *
+     * - latest 10 replies with votes
+     *
+     * - If user is logged in AND have given a vote to post then his votes will be highlighted
+     *
+     * @param string|int $forumPostId
+     * @param Request $request
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function getForumPost($forumPostId, Request $request)
+    {
+        $forumPost = ForumPost::findForumPost($forumPostId);
+        if (true == empty($forumPost)) {
+            return response()->json([
+                'message' => 'Not Found'
+            ], 403);
+        }
+
+        $forumPostReplyCount = ForumPost::getReplyCountById($forumPostId);
+        $forumPostVoteCount = ForumPost::getVoteCountById($forumPostId);
+
+        $forumPost->total_votes = $forumPostVoteCount->total_votes ?? 0;
+        $forumPost->total_replies = $forumPostReplyCount->total_replies ?? 0;
+
+        $forumPost->latest_replies = ForumPostReply::getLatestByPostWithVote(0, 10, $forumPostId);
+        if ($forumPost->latest_replies->isNotEmpty())
+            if (auth('api')->user() != null) {
+                $userVotedPosts = ForumPostReplyVote::getUserVoteByPostReplies($forumPost->latest_replies->pluck('id'),
+                    auth('api')->user()->id)->keyBy('forum_post_reply_id');
+                foreach ($forumPost->latest_replies as $key => $reply) {
+                    $reply->user_vote_value = $userVotedPosts[$reply->id]->value ?? 0;
+                    $reply->total_votes = $reply->total_votes ?? 0;
+                }
+            } else {
+                foreach ($forumPost->latest_replies as $key => $reply) {
+                    $reply->user_vote_value = $userVotedPosts[$reply->id]->value ?? 0;
+                    $reply->total_votes = $reply->total_votes ?? 0;
+                }
+            }
+
+        $forumPost->tags = ForumPostTag::getByForumPostId($forumPostId);
+
+        $forumPost->user_vote_value = 0;
+        if (auth('api')->user() != null) {
+            $userVotedPost = ForumPostVote::findUserVoteByPost($forumPostId, auth('api')->user()->id);
+            $forumPost->user_vote_value = $userVotedPost->value ?? 0;
+        }
+
+        return response()->api(true, 'success', $forumPost);
+    }
+
+    /**
+     * Used to create a forum post by a user
+     * @param Request $request
+     * @return mixed
+     */
+    public function addForumPost(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'title' => 'required',
+            'description' => 'required',
+            'tags' => 'array',
+            'forum_category_id' => 'required',
+        ]);
+        if ($validator->fails()) {
+            return response()->api(false, implode(', ', $validator->errors()->all()), null);
+        }
+
+        $forumPostId = ForumPost::createPost([
+            'forum_category_id' => $request->forum_category_id,
+            'user_id' => Auth::id(),
+            'title' => $request->title,
+            'description' => $request->description,
+            'status' => ForumPost::ACTIVE,
+        ]);
+        // dump($request->tags);
+        // $request->tags = array_column($request->tags, 'id');
+        // dd($request->tags);
+        if (false == empty($request->tags)) {
+            $tags = [];
+            $request->tags = array_column($request->tags, 'id');
+            foreach (array_slice($request->tags, 0, 5) as $key => $tagId) {
+                array_push($tags, [
+                    'forum_post_id' => $forumPostId,
+                    'forum_tag_id' => $tagId,
+                    'status' => ForumPostTag::ACTIVE,
+                ]);
+            }
+            // dd($tags);
+            ForumPostTag::batchCreatePostTags($tags);
+        }
+
+        return response()->api(true, 'success', ['id' => $forumPostId]);
+    }
+
+    /**
+     * Get forum meta like: `categories` and `tags`
+     * @param Request $request
+     * @return mixed
+     */
+    public function getForumMeta(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'values' => [
+                'required',
+                'array',
+                Rule::in(['categories', 'tags']),
+            ],
+        ]);
+        if ($validator->fails()) {
+            return response()->api(false, implode(', ', $validator->errors()->all()), null);
+        }
+
+        $response = [];
+        if (true == in_array('categories', $request->values)) {
+            $response['categories'] = ForumCategory::getCategories();
+        }
+        if (true == in_array('tags', $request->values)) {
+            $response['tags'] = ForumTag::getTags();
+        }
+
+        return response()->api(true, 'success', $response);
+    }
+}

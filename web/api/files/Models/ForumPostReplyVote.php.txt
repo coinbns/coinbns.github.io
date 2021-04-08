@@ -1,0 +1,43 @@
+<?php
+
+namespace App\Models;
+
+use App\Models\Model;
+
+class ForumPostReplyVote extends Model
+{
+    /*Create Queries Start*/
+    public static function createVote($data)
+    {
+        $vote = new self;
+
+        $vote->user_id = $data['user_id'];
+        $vote->forum_post_reply_id = $data['forum_post_reply_id'];
+        $vote->value = $data['value'];
+        $vote->status = $data['status'];
+
+        return $vote->save();
+    }
+    /*Create Queries End*/
+
+    /*Find Queries Start*/
+    public static function findByForumPostReplyByUser($forumPostReplyId, $userId)
+    {
+        return self::where('forum_post_reply_id', $forumPostReplyId)
+            ->where('user_id', $userId)
+            ->active()
+            ->first();
+    }
+    /*Find Queries End*/
+
+    /*Get Queries Start*/
+    public static function getUserVoteByPostReplies($forumPostReplyIds, $userId)
+    {
+        return self::where('user_id', $userId)
+            ->whereIn('forum_post_reply_id', $forumPostReplyIds)
+            ->active()
+            ->get();
+    }
+    /*Get Queries End*/
+}
+

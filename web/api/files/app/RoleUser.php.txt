@@ -1,0 +1,22 @@
+<?php
+
+namespace App;
+
+use Illuminate\Database\Eloquent\Model;
+
+class RoleUser extends Model
+{
+    protected $table = 'role_user';
+    public $timestamps = false;
+
+    public static function findByUserId($userId)
+    {
+        return self::where('user_id', $userId)->first();
+    }
+
+    public static function deleteByUserId($userId)
+    {
+        return self::where('user_id', $userId)->delete();
+    }
+}
+

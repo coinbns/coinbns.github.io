@@ -1,0 +1,46 @@
+<?php
+
+namespace App\Models;
+
+use App\Models\Model;
+
+class ForumPostTag extends Model
+{
+    /*Create Queries Start*/
+    public static function createPostTag($data)
+    {
+        $post = new self;
+
+        $post->forum_post_id = $data['forum_post_id'];
+        $post->forum_tag_id = $data['forum_tag_id'];
+        $post->status = $data['status'];
+        $post->save();
+
+        return $post->id;
+    }
+
+    public static function batchCreatePostTags($data)
+    {
+        return self::insert($data);
+    }
+    /*Create Queries End*/
+
+    /*Get Queries Start*/
+    public static function getByForumPostIds($forumPostIds)
+    {
+        return self::select('forum_tags.id', 'forum_tags.name', 'forum_post_tags.forum_post_id')
+            ->join('forum_tags', 'forum_post_tags.forum_tag_id', '=', 'forum_tags.id')
+            ->whereIn('forum_post_tags.forum_post_id', $forumPostIds)
+            ->get();
+    }
+
+    public static function getByForumPostId($forumPostId)
+    {
+        return self::select('forum_tags.id', 'forum_tags.name', 'forum_post_tags.forum_post_id')
+            ->join('forum_tags', 'forum_post_tags.forum_tag_id', '=', 'forum_tags.id')
+            ->where('forum_post_tags.forum_post_id', $forumPostId)
+            ->get();
+    }
+    /*Get Queries End*/
+}
+

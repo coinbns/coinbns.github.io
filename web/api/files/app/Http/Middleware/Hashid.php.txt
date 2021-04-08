@@ -1,0 +1,83 @@
+<?php
+
+namespace App\Http\Middleware;
+
+use Closure;
+use Hashids\Hashids;
+
+class Hashid
+{
+    /**
+     * Handle an incoming request.
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @param  \Closure  $next
+     * @return mixed
+     */
+    public function handle($request, Closure $next)
+    {
+        if (false == config('app.enable_hashid')) {
+            return $next($request);
+        }
+
+        $hashLength = config('app.hashid_length');
+        $hashid = new Hashids(config('app.hashid_secret'), $hashLength);
+        $regex = ['/^id$/', '/_id$/'];
+        foreach ($request->route()->parameters as $key => $value) {
+            // dump($key, $value);
+            if (strlen($value) == $hashLength && preg_match('/Id$/', $key)) {
+                $request->route()->parameters[$key] = $hashid->decode($value)[0] ?? null;
+            }
+        }
+
+        $inputBlackList = ['client_id'];
+        $request->merge($this->deepIterator('all', $request->all(), function($key, $value) use($regex, $hashid, $inputBlackList, $hashLength) {
+            if (strlen($value) == $hashLength) {
+                foreach ($regex as $regKey => $reg) {
+                    // dump($reg." ".$key, preg_match($reg, $key));
+                    if (false == in_array($key, $inputBlackList) && preg_match($reg, $key)) {
+                        return $hashid->decode($value)[0] ?? null;
+                    }
+                }
+            }
+            
+            return $value;
+        }));
+        
+
+        $response = $next($request);
+        $original = json_decode($response->getContent(), true);
+        $outputBlackList = [];
+        $outputWhiteList = [];
+        $response->setContent(json_encode($this->deepIterator('data', $original, function($key, $value) use($regex, $hashid, $outputBlackList, $outputWhiteList) {
+            if (is_int($value)) {
+                foreach ($regex as $regKey => $reg) {
+                    // dump($reg." ".$key, preg_match($reg, $key));
+                    if (false == in_array($key, $outputBlackList) && preg_match($reg, $key)) {
+                        return $hashid->encode($value);
+                    }
+                }
+            }
+            
+            return $value;
+        })));
+
+        return $response;
+    }
+
+    public function deepIterator($ogKey, $ogValue, $callback)
+    {
+        // dump($ogValue);
+        if (is_array($ogValue)) {
+            foreach ($ogValue as $key => $value) {
+                // dump($key);
+                $ogValue[$key] = $this->deepIterator($key, $value, $callback);
+            }
+            return $ogValue;
+        } else {
+            // dump($ogKey);
+            return $callback($ogKey, $ogValue);
+        }
+    }
+}
+

@@ -1,0 +1,54 @@
+<?php
+
+namespace App\Providers;
+
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\ServiceProvider;
+use Illuminate\Support\Facades\DB;
+
+class AppServiceProvider extends ServiceProvider
+{
+    /**
+     * Bootstrap any application services.
+     *
+     * @return void
+     */
+    public function boot()
+    {
+        //
+        Schema::defaultStringLength(191);
+
+        if(config('app.env')=='dump_server') {
+            DB::listen(function ($query) {
+                $rawQuery = $query->sql;
+                $bindingArray = $query->bindings;
+
+                foreach ($bindingArray as $key => $value) {
+                    $type = gettype($value);
+
+                    if($type == "object"){
+                        $bindingArray[$key] = $value->format('Y-m-d H:i:s');
+                    }
+                }
+
+                //dd($bindingArray);
+
+                $queryWithValue = vsprintf(str_replace("?", "%s", $rawQuery), $bindingArray);
+
+
+                dump($queryWithValue);
+            });
+        }
+    }
+
+    /**
+     * Register any application services.
+     *
+     * @return void
+     */
+    public function register()
+    {
+        //
+    }
+}
+
